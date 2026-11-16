@@ -399,6 +399,8 @@ html[data-theme="dark"] .tile .name { text-shadow: 0 1px 3px rgba(0, 0, 0, .5); 
   padding: 18px 22px 10px;
 }
 
+.sheet .grid { padding: 14px 2px 18px; }
+
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sheet-head h3 { margin: 4px 0; font-size: 15px; font-weight: 600; }
 

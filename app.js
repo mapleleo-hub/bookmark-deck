@@ -108,6 +108,15 @@
   }
 
   function currentGroup() { return state.groups.find((g) => g.id === state.activeId) || null; }
+
+  function findNode(id, nodes) {
+    for (const n of nodes || []) {
+      if (n.id === id) return n;
+      const hit = findNode(id, n.children);
+      if (hit) return hit;
+    }
+    return null;
+  }
   function childrenOf(group) { return group ? (group.node.children || []).filter((c) => (group.virtual ? c.url : true)) : []; }
   function parentIdOf(group) { return group.virtual ? group.node.id : group.id; }
 
@@ -232,6 +241,14 @@
     await reloadNow();
     state.activeId = created.id;
     render();
+  }
+
+  async function addFolder() {
+    const name = prompt('新建文件夹名称', '新文件夹');
+    if (name === null) return;
+    const title = name.trim() || '新文件夹';
+    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    await chrome.bookmarks.create({ parentId: defaultParentId(), title });
   }
 
   /* ---------- 图标与文件夹 ---------- */
@@ -439,10 +456,18 @@
   const reload = debounce(() => reloadNow(), 120);
 
   async function reloadNow() {
+    const ids = state.overlay.map((n) => n.id);
     await loadTree();
-    if (state.overlay.length) {
-      state.overlay = [];
-      $('overlay').hidden = true;
+    if (ids.length) {
+      const path = ids.map((id) => findNode(id, state.roots));
+      if (path.every(Boolean)) {
+        state.overlay = path;
+        renderOverlay();
+        $('overlay').hidden = false;
+      } else {
+        state.overlay = [];
+        $('overlay').hidden = true;
+      }
     }
     render();
   }
@@ -658,6 +683,7 @@
     });
 
     $('addBtn').addEventListener('click', () => openForm(null, { parentId: defaultParentId() }));
+    $('addFolderBtn').addEventListener('click', addFolder);
     $('gearBtn').addEventListener('click', () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; });
     $('closeDrawer').addEventListener('click', () => { $('drawer').hidden = true; });
     $('closeOverlay').addEventListener('click', () => closeFolder(0));
@@ -738,6 +764,15 @@
     if (wanted) {
       const hit = state.groups.find((g) => g.id === wanted || g.title === wanted);
       if (hit) state.activeId = hit.id;
+    }
+    const openIds = (params.get('open') || '').split(',').filter(Boolean);
+    if (openIds.length) {
+      const path = openIds.map((id) => findNode(id, state.roots));
+      if (path.every(Boolean)) {
+        state.overlay = path;
+        renderOverlay();
+        $('overlay').hidden = false;
+      }
     }
 
     applyWall();
