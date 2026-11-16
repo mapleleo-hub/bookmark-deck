@@ -249,7 +249,7 @@
     const idx = folders.findIndex((f) => f.id === group.id);
     const target = idx + delta;
     if (idx < 0 || target < 0 || target >= folders.length) return;
-    await chrome.bookmarks.move(group.id, { parentId: root.id, index: target });
+    await placeAt(group.id, root.id, target);
   }
 
   async function addPage() {
@@ -326,7 +326,7 @@
       const at = cur.indexOf(id);
       if (at < 0) continue;
       if (at !== i) {
-        await chrome.bookmarks.move(id, { parentId: snap.parentId, index: i });
+        await placeAt(id, snap.parentId, i);
         cur.splice(at, 1);
         cur.splice(i, 0, id);
       }
@@ -431,7 +431,7 @@
     try {
       for (let i = 0; i < want.length; i += 1) {
         if (current[i] === want[i]) continue;
-        await chrome.bookmarks.move(want[i], { parentId: parentId, index: i });
+        await placeAt(want[i], parentId, i);
         const from = current.indexOf(want[i]);
         if (from >= 0) current.splice(from, 1);
         current.splice(i, 0, want[i]);
@@ -557,8 +557,8 @@
       await chrome.bookmarks.move(bId, { parentId: folder.id, index: 1 });
       if (beforeA && beforeB) {
         pushUndo('建组「' + title + '」', async () => {
-          await chrome.bookmarks.move(aId, { parentId: beforeA.parentId, index: Math.max(beforeA.index, 0) });
-          await chrome.bookmarks.move(bId, { parentId: beforeB.parentId, index: Math.max(beforeB.index, 0) });
+          await placeAt(aId, beforeA.parentId, Math.max(beforeA.index, 0));
+          await placeAt(bId, beforeB.parentId, Math.max(beforeB.index, 0));
           await chrome.bookmarks.removeTree(folder.id);
         });
       }
@@ -577,13 +577,15 @@
     if (!dragId || !targetId || dragId === targetId) return;
     let kids = [];
     try { kids = await chrome.bookmarks.getChildren(parentId); } catch (e) { return; }
-    const at = kids.findIndex((k) => k.id === targetId);
-    const self = kids.findIndex((k) => k.id === dragId);
-    if (at < 0 || self < 0) return;
-    let raw = at + (side === 'right' ? 1 : 0);
-    if (self < raw) raw -= 1;
-    if (raw === self) return;
-    await moveNode(dragId, parentId, raw);
+    // 先把源摘掉，得到「移除后」的数组，再算插入位置
+    const without = kids.filter((k) => k.id !== dragId);
+    const at = without.findIndex((k) => k.id === targetId);
+    if (at < 0) return;
+    const idx = at + (side === 'right' ? 1 : 0);
+    const next = without.slice();
+    next.splice(idx, 0, { id: dragId });
+    if (next.length === kids.length && next.every((k, i) => k.id === kids[i].id)) return;
+    await placeAt(dragId, parentId, idx);
     await reloadNow();
   }
 
@@ -861,8 +863,10 @@
   }
 
   /* ---------- 写操作 ---------- */
-  // Chrome 的 bookmarks.move 不接受负 index，追加要显式算成目标子项数
-  async function appendIndex(id, parentId) {
+  // chrome.bookmarks.move 的 index 在同父级内是按「移除前」的位置解释的：
+  // 目标索引大于源当前索引时，Chrome 内部会自己减一。这里统一用「源移除之后的插入位置」
+  // 作为入参，内部转成 Chrome 要的形式，调用方不必再关心这个补偿。
+  async function placeAt(id, parentId, afterIndex) {
     let kids = [];
     if (chrome.bookmarks.getChildren) {
       kids = await chrome.bookmarks.getChildren(parentId);
@@ -870,8 +874,11 @@
       const [dest] = await chrome.bookmarks.getSubTree(parentId);
       kids = (dest && dest.children) || [];
     }
-    const same = kids.some((k) => k.id === id);
-    return same ? Math.max(kids.length - 1, 0) : kids.length;
+    const self = kids.findIndex((k) => k.id === id);
+    const base = afterIndex < 0 ? kids.length - (self >= 0 ? 1 : 0) : afterIndex;
+    const index = self >= 0 && base >= self ? base + 1 : base;
+    await chrome.bookmarks.move(id, { parentId: parentId, index: index });
+    return index;
   }
 
   async function moveNode(id, parentId, index) {
@@ -887,11 +894,9 @@
       old = { parentId: node.parentId, index: sibs.findIndex((k) => k.id === id) };
     } catch (e) { old = null; }
     try {
-      let target = typeof index === 'number' ? index : -1;
-      if (target < 0) target = await appendIndex(id, parentId);
-      await chrome.bookmarks.move(id, { parentId, index: target });
+      await placeAt(id, parentId, typeof index === 'number' ? index : -1);
       if (old) {
-        pushUndo('移动', () => chrome.bookmarks.move(id, { parentId: old.parentId, index: Math.max(old.index, 0) }));
+        pushUndo('移动', () => placeAt(id, old.parentId, Math.max(old.index, 0)));
       }
     } catch (e) {
       toast('移动失败：' + e.message);
@@ -1880,6 +1885,6 @@
     setInterval(tick, 20000);
   }
 
-  window.__bd = { moveNode: moveNode, appendIndex: appendIndex, insertBeside: insertBeside, intentAt: intentAt, state: state };
+  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, intentAt: intentAt, state: state };
   boot();
 })();
