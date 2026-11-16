@@ -55,11 +55,41 @@
         return Promise.resolve(raw ? JSON.parse(raw) : fallback);
       } catch (e) { return Promise.resolve(fallback); }
     },
+    // 一次取全部偏好。用对象返回，加设置项时不会因为位置变化读错值。
+    getAll(defaults) {
+      if (hasAPI) {
+        return Promise.resolve(chrome.storage.local.get(defaults))
+          .then((o) => Object.assign({}, defaults, o))
+          .catch(() => Object.assign({}, defaults));
+      }
+      const out = Object.assign({}, defaults);
+      Object.keys(defaults).forEach((k) => {
+        try {
+          const raw = localStorage.getItem('bd.' + k);
+          if (raw !== null) out[k] = JSON.parse(raw);
+        } catch (e) { /* 忽略单键损坏 */ }
+      });
+      return Promise.resolve(out);
+    },
+    // 返回 Promise<boolean>：写入失败（典型是超配额）时给出可见提示，不再静默吞掉
     set(key, value) {
+      const o = {};
+      o[key] = value;
+      if (hasAPI) {
+        return Promise.resolve(chrome.storage.local.set(o))
+          .then(() => true)
+          .catch((e) => {
+            if (typeof toast === 'function') toast('保存失败：' + ((e && e.message) || '浏览器存储拒绝写入'));
+            return false;
+          });
+      }
       try {
-        if (hasAPI) { const o = {}; o[key] = value; chrome.storage.local.set(o); }
-        else localStorage.setItem('bd.' + key, JSON.stringify(value));
-      } catch (e) { /* 忽略写入失败 */ }
+        localStorage.setItem('bd.' + key, JSON.stringify(value));
+        return Promise.resolve(true);
+      } catch (e) {
+        if (typeof toast === 'function') toast('保存失败：本地存储已满');
+        return Promise.resolve(false);
+      }
     }
   };
 
@@ -1496,6 +1526,38 @@
   }
 
   /* ---------- 外观 ---------- */
+  // 壁纸统一压到最长边 1920、JPEG 0.85。原始 6MB 的截图通常落到 200 到 500KB，
+  // 避开 chrome.storage.local 的 10MB 配额（壁纸以 data URL 形式存进去）。
+  function compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxSide = 1920;
+          const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } catch (err) {
+          reject(err);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('无法读取这张图片'));
+      };
+      img.src = url;
+    });
+  }
+
   function applyAccent() {
     const hex = /^#[0-9a-f]{6}$/i.test(state.accent || '') ? state.accent : '#3d6cf0';
     const r = parseInt(hex.slice(1, 3), 16);
@@ -1743,18 +1805,23 @@
     });
 
     $('pickImage').addEventListener('click', () => $('fileImage').click());
-    $('fileImage').addEventListener('change', (e) => {
+    $('fileImage').addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
+      e.target.value = '';
       if (!file) return;
-      if (file.size > 6 * 1024 * 1024) { toast('图片太大，请选 6MB 以内的'); return; }
-      const reader = new FileReader();
-      reader.onload = () => {
-        state.image = reader.result;
-        store.set('image', state.image);
+      if (!/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
+      if (file.size > 12 * 1024 * 1024) { toast('图片太大，请选 12MB 以内的'); return; }
+      try {
+        const data = await compressImage(file);
+        const ok = await store.set('image', data);
+        if (!ok) { toast('壁纸存不进去，换一张小一点的'); return; }
+        state.image = data;
         applyWall();
         renderSwatches();
-      };
-      reader.readAsDataURL(file);
+        toast('壁纸已更新');
+      } catch (err) {
+        toast('壁纸处理失败：' + (err && err.message ? err.message : '无法读取图片'));
+      }
     });
     $('clearImage').addEventListener('click', () => {
       state.image = null;
@@ -1807,34 +1874,35 @@
 
   /* ---------- 启动 ---------- */
   async function boot() {
-    const prefs = await Promise.all([
-      store.get('wall', 'a'),
-      store.get('image', null),
-      store.get('size', 'm'),
-      store.get('rootIdx', 0),
-      store.get('showEmpty', true),
-      store.get('railCollapsed', false),
-      store.get('engine', 'google'),
-      store.get('customs', []),
-      store.get('layout', 'grid'),
-      store.get('coords', {}),
-      store.get('theme', 'auto'),
-      store.get('accent', '#3d6cf0'),
-      store.get('history', [])
-    ]);
-    state.wall = prefs[0] || 'a';
-    state.image = prefs[1] || null;
-    state.size = prefs[2] || 'm';
-    state.rootIdx = Number(prefs[3]) || 0;
-    state.showEmpty = prefs[4] !== false;
-    state.railCollapsed = prefs[5] === true;
-    state.engine = prefs[6] || 'google';
-    state.customs = Array.isArray(prefs[7]) ? prefs[7] : [];
-    state.layout = prefs[8] === 'free' ? 'free' : 'grid';
-    state.coords = prefs[9] && typeof prefs[9] === 'object' ? prefs[9] : {};
-    state.theme = ['light', 'dark', 'auto'].indexOf(prefs[10]) >= 0 ? prefs[10] : 'auto';
-    state.accent = /^#[0-9a-f]{6}$/i.test(prefs[11] || '') ? prefs[11] : '#3d6cf0';
-    state.history = Array.isArray(prefs[12]) ? prefs[12] : [];
+    const prefs = await store.getAll({
+      wall: 'a',
+      image: null,
+      size: 'm',
+      rootIdx: 0,
+      showEmpty: true,
+      railCollapsed: false,
+      engine: 'google',
+      customs: [],
+      layout: 'grid',
+      coords: {},
+      theme: 'auto',
+      accent: '#3d6cf0',
+      history: [],
+      seenIntro: false
+    });
+    state.wall = prefs.wall || 'a';
+    state.image = prefs.image || null;
+    state.size = prefs.size || 'm';
+    state.rootIdx = Number(prefs.rootIdx) || 0;
+    state.showEmpty = prefs.showEmpty !== false;
+    state.railCollapsed = prefs.railCollapsed === true;
+    state.engine = prefs.engine || 'google';
+    state.customs = Array.isArray(prefs.customs) ? prefs.customs : [];
+    state.layout = prefs.layout === 'free' ? 'free' : 'grid';
+    state.coords = prefs.coords && typeof prefs.coords === 'object' ? prefs.coords : {};
+    state.theme = ['light', 'dark', 'auto'].indexOf(prefs.theme) >= 0 ? prefs.theme : 'auto';
+    state.accent = /^#[0-9a-f]{6}$/i.test(prefs.accent || '') ? prefs.accent : '#3d6cf0';
+    state.history = Array.isArray(prefs.history) ? prefs.history : [];
     $('showEmpty').checked = state.showEmpty;
 
     await loadTree();
