@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新标签页</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="wall"></div>
+
+<header class="top">
+  <div class="clock" id="clock"></div>
+  <div class="search">
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input id="q" type="search" placeholder="搜索书签，Ctrl+K" autocomplete="off" spellcheck="false">
+  </div>
+</header>
+
+<nav class="tabs" id="tabs"></nav>
+
+<main class="grid" id="grid"></main>
+
+<div class="hint" id="hint" hidden>没有匹配的书签</div>
+
+<section class="overlay" id="overlay" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <div class="crumbs" id="crumbs"></div>
+      <button class="icon-btn" id="closeOverlay" title="关闭">×</button>
+    </div>
+    <div class="grid" id="subgrid"></div>
+  </div>
+</section>
+
+<div class="menu" id="menu" hidden></div>
+
+<div class="modal" id="modal" hidden>
+  <form class="box" id="form">
+    <h3 id="formTitle">添加书签</h3>
+    <label>名称<input id="fName" required maxlength="200"></label>
+    <label>网址<input id="fUrl" placeholder="https://" autocomplete="off"></label>
+    <p class="err" id="fErr" hidden></p>
+    <div class="row">
+      <button type="button" class="ghost" id="fCancel">取消</button>
+      <button type="submit" class="primary" id="fOk">保存</button>
+    </div>
+  </form>
+</div>
+
+<aside class="drawer" id="drawer" hidden>
+  <div class="sheet-head">
+    <h3>外观</h3>
+    <button class="icon-btn" id="closeDrawer" title="关闭">×</button>
+  </div>
+  <div class="field">
+    <span class="label">壁纸</span>
+    <div class="swatches" id="swatches"></div>
+    <div class="row gap">
+      <button class="ghost" id="pickImage">选本地图片</button>
+      <button class="ghost" id="clearImage">清除</button>
+    </div>
+    <input type="file" id="fileImage" accept="image/*" hidden>
+  </div>
+  <div class="field">
+    <span class="label">图标大小</span>
+    <div class="seg" id="sizeSeg">
+      <button data-size="s">小</button><button data-size="m">中</button><button data-size="l">大</button>
+    </div>
+  </div>
+  <div class="field">
+    <label class="inline"><input type="checkbox" id="showEmpty"> 显示空分组</label>
+  </div>
+  <div class="field">
+    <span class="label">书签来源</span>
+    <div class="seg" id="rootSeg"></div>
+    <p class="note">换源后仍读写同一份书签，只是显示哪个根目录。</p>
+  </div>
+</aside>
+
+<div class="fab">
+  <button class="icon-btn big" id="addBtn" title="添加书签">
+    <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <button class="icon-btn big" id="gearBtn" title="外观">
+    <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5 7.2 7.2M16.8 16.8l1.7 1.7M18.5 5.5 16.8 7.2M7.2 16.8 5.5 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<script>window.__DEMO__ = !(window.chrome && window.chrome.bookmarks);</script>
+<script>if (window.__DEMO__) document.write('<script src="mock.js"><\/script>');</script>
+<script src="app.js"></script>
+</body>
+</html>
