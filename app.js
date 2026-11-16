@@ -2,6 +2,7 @@
   'use strict';
 
   const hasAPI = typeof chrome !== 'undefined' && chrome.bookmarks && chrome.runtime && chrome.runtime.id;
+  const t = (key, vars) => (window.I18N ? window.I18N.t(key, vars) : key);
   const $ = (id) => document.getElementById(id);
 
   const WALLS = {
@@ -14,12 +15,12 @@
 
   const ENGINES = [
     { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=%s' },
-    { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q=%s' },
-    { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd=%s' },
+    { id: 'bing', name: t('engine.bing'), url: 'https://www.bing.com/search?q=%s' },
+    { id: 'baidu', name: t('engine.baidu'), url: 'https://www.baidu.com/s?wd=%s' },
     { id: 'ddg', name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=%s' },
-    { id: 'sogou', name: '搜狗', url: 'https://www.sogou.com/web?query=%s' },
-    { id: 'zhihu', name: '知乎', url: 'https://www.zhihu.com/search?type=content&q=%s' },
-    { id: 'bili', name: '哔哩哔哩', url: 'https://search.bilibili.com/all?keyword=%s' }
+    { id: 'sogou', name: t('engine.sogou'), url: 'https://www.sogou.com/web?query=%s' },
+    { id: 'zhihu', name: t('engine.zhihu'), url: 'https://www.zhihu.com/search?type=content&q=%s' },
+    { id: 'bili', name: t('engine.bili'), url: 'https://search.bilibili.com/all?keyword=%s' }
   ];
 
   const state = {
@@ -81,7 +82,7 @@
         return Promise.resolve(chrome.storage.local.set(o))
           .then(() => true)
           .catch((e) => {
-            if (typeof toast === 'function') toast('保存失败：' + ((e && e.message) || '浏览器存储拒绝写入'));
+            if (typeof toast === 'function') toast(t('toast.saveFail', { msg: (e && e.message) || t('toast.saveFailUnknown') }));
             return false;
           });
       }
@@ -89,7 +90,7 @@
         localStorage.setItem('bd.' + key, JSON.stringify(value));
         return Promise.resolve(true);
       } catch (e) {
-        if (typeof toast === 'function') toast('保存失败：本地存储已满');
+        if (typeof toast === 'function') toast(t('toast.storageFull'));
         return Promise.resolve(false);
       }
     }
@@ -149,7 +150,7 @@
     const kids = root.children || [];
     const loose = kids.filter((c) => c.url);
     const groups = [];
-    if (loose.length) groups.push({ id: root.id, title: '未分组', virtual: true, node: root });
+    if (loose.length) groups.push({ id: root.id, title: t('group.untitled'), virtual: true, node: root });
     kids.filter((c) => !c.url).forEach((f) => groups.push({ id: f.id, title: f.title || hostOf(f.url), virtual: false, node: f }));
     state.groups = groups;
     if (!groups.some((g) => g.id === state.activeId)) {
@@ -213,7 +214,7 @@
 
       const label = document.createElement('span');
       label.className = 'label';
-      label.textContent = g.title || '未命名';
+      label.textContent = g.title || t('item.untitled');
 
       const cnt = document.createElement('span');
       cnt.className = 'cnt';
@@ -254,31 +255,31 @@
 
   function pageMenu(x, y, group) {
     showMenu(x, y, [
-      { label: '重命名', disabled: group.virtual, onClick: () => renamePage(group) },
-      { label: '上移', disabled: group.virtual, onClick: () => reorderPage(group, -1) },
-      { label: '下移', disabled: group.virtual, onClick: () => reorderPage(group, 1) },
+      { label: t('menu.renamePage'), disabled: group.virtual, onClick: () => renamePage(group) },
+      { label: t('menu.movePageUp'), disabled: group.virtual, onClick: () => reorderPage(group, -1) },
+      { label: t('menu.movePageDown'), disabled: group.virtual, onClick: () => reorderPage(group, 1) },
       { sep: true },
-      { label: '删除分页', danger: true, disabled: group.virtual, onClick: () => deletePage(group) }
+      { label: t('menu.deletePage'), danger: true, disabled: group.virtual, onClick: () => deletePage(group) }
     ]);
   }
 
   function renamePage(group) {
-    const name = prompt('分页名称', group.title);
+    const name = prompt(t('page.renamePrompt'), group.title);
     if (name === null) return;
     const t = name.trim();
     if (!t || t === group.title) return;
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     chrome.bookmarks.update(group.id, { title: t });
   }
 
   function deletePage(group) {
     const n = childrenOf(group).length;
-    if (!confirm('删除「' + group.title + '」以及里面的 ' + n + ' 项？会同步删除浏览器书签。')) return;
+    if (!confirm(t('page.deleteConfirm', { title: group.title, n: n }))) return;
     removeNode(group.id);
   }
 
   async function reorderPage(group, delta) {
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     const root = rootNode();
     const folders = (root.children || []).filter((c) => !c.url);
     const idx = folders.findIndex((f) => f.id === group.id);
@@ -288,24 +289,24 @@
   }
 
   async function addPage() {
-    const name = prompt('新分页名称', '新分页');
+    const name = prompt(t('page.newPrompt'), t('page.newDefault'));
     if (name === null) return;
-    const title = name.trim() || '新分页';
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    const title = name.trim() || t('page.newDefault');
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     const created = await chrome.bookmarks.create({ parentId: rootNode().id, title });
-    if (created && created.id) pushUndo('新建分页「' + title + '」', () => chrome.bookmarks.removeTree(created.id));
+    if (created && created.id) pushUndo(t('undo.newPage', { title: title }), () => chrome.bookmarks.removeTree(created.id));
     await reloadNow();
     state.activeId = created.id;
     render();
   }
 
   async function addFolder() {
-    const name = prompt('新建文件夹名称', '新文件夹');
+    const name = prompt(t('folder.namePrompt'), t('folder.nameDefault'));
     if (name === null) return;
-    const title = name.trim() || '新文件夹';
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    const title = name.trim() || t('folder.nameDefault');
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     const created = await chrome.bookmarks.create({ parentId: defaultParentId(), title });
-    if (created && created.id) pushUndo('新建文件夹「' + title + '」', () => chrome.bookmarks.removeTree(created.id));
+    if (created && created.id) pushUndo(t('undo.newFolder', { title: title }), () => chrome.bookmarks.removeTree(created.id));
   }
 
   /* ---------- 撤销 ---------- */
@@ -321,13 +322,13 @@
   async function undoLast() {
     if (undoBusy) return;
     const item = history.pop();
-    if (!item) { toast('没有可撤销的操作'); return; }
+    if (!item) { toast(t('toast.undoNone')); return; }
     undoBusy = true;
     try {
       await item.run();
-      toast('已撤销：' + item.label);
+      toast(t('toast.undoOk', { label: item.label }));
     } catch (e) {
-      toast('撤销失败：' + e.message);
+      toast(t('toast.undoFail', { msg: e.message }));
     } finally {
       undoBusy = false;
     }
@@ -472,7 +473,7 @@
         current.splice(i, 0, want[i]);
       }
     } catch (e) {
-      toast('顺序同步失败：' + e.message);
+      toast(t('toast.orderFail', { msg: e.message }));
     } finally {
       syncing = false;
     }
@@ -572,10 +573,10 @@
   function clearIntent() { paintIntent(null); }
 
   async function groupTiles(aId, bId, parentId) {
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
-    const name = prompt('把这两项放进新文件夹，取个名字', '新建文件夹');
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
+    const name = prompt(t('folder.groupPrompt'), t('folder.nameDefault'));
     if (name === null) { render(); return; }
-    const title = name.trim() || '新建文件夹';
+    const title = name.trim() || t('folder.nameDefault');
     let beforeA = null;
     let beforeB = null;
     try {
@@ -591,16 +592,16 @@
       await chrome.bookmarks.move(aId, { parentId: folder.id, index: 0 });
       await chrome.bookmarks.move(bId, { parentId: folder.id, index: 1 });
       if (beforeA && beforeB) {
-        pushUndo('建组「' + title + '」', async () => {
+        pushUndo(t('undo.group', { title: title }), async () => {
           await placeAt(aId, beforeA.parentId, Math.max(beforeA.index, 0));
           await placeAt(bId, beforeB.parentId, Math.max(beforeB.index, 0));
           await chrome.bookmarks.removeTree(folder.id);
         });
       }
-      toast('已收进「' + title + '」');
+      toast(t('toast.moveInto', { title: title }));
       setTimeout(() => reloadNow(), 60);
     } catch (e) {
-      toast('建组失败：' + e.message);
+      toast(t('toast.groupFail', { msg: e.message }));
       render();
     }
   }
@@ -608,7 +609,7 @@
   // 插入位置一律以书签顺序为准。DOM 顺序可能还没跟上上一次 move（重渲染是异步的），
   // 拿 DOM 索引算插入点会在连续拖动时把条目送错方向。
   async function insertBeside(dragId, parentId, targetId, side) {
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     if (!dragId || !targetId || dragId === targetId) return;
     let kids = [];
     try { kids = await chrome.bookmarks.getChildren(parentId); } catch (e) { return; }
@@ -624,6 +625,59 @@
     await reloadNow();
   }
 
+  // 落点执行：鼠标拖放与触屏拖拽共用同一套语义
+  async function applyDrop(drag, intent, parentId) {
+    const group = drag.group && drag.group.length > 1 ? drag.group : null;
+    if (!intent) {
+      if (group) {
+        clearSelection();
+        for (const id of group) await moveNode(id, parentId, -1);
+      } else {
+        await moveNode(drag.id, parentId, -1);
+      }
+      return;
+    }
+    if (intent.side === 'group') {
+      // 覆盖建组只针对被拖的那一项，多选时其余保持不动
+      if (intent.el.classList.contains('folder')) await moveNode(drag.id, intent.el.dataset.id, -1);
+      else await groupTiles(drag.id, intent.el.dataset.id, parentId);
+      clearSelection();
+      return;
+    }
+    if (group) {
+      clearSelection();
+      await insertManyBeside(group, parentId, intent.el.dataset.id, intent.side);
+      return;
+    }
+    await insertBeside(drag.id, parentId, intent.el.dataset.id, intent.side);
+  }
+
+  // 整组插入：多选后拖动，按当前顺序把一组条目放到目标的一侧
+  async function insertManyBeside(ids, parentId, targetId, side) {
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
+    let kids = [];
+    try { kids = await chrome.bookmarks.getChildren(parentId); } catch (e) { return; }
+    const moving = kids.filter((k) => ids.indexOf(k.id) >= 0).map((k) => k.id);
+    if (!moving.length) return;
+    const withoutIds = kids.filter((k) => ids.indexOf(k.id) < 0).map((k) => k.id);
+    const at = withoutIds.indexOf(targetId);
+    if (at < 0) return;
+    const idx = at + (side === 'right' ? 1 : 0);
+    const desired = withoutIds.slice(0, idx).concat(moving, withoutIds.slice(idx));
+    const before = kids.map((k) => k.id).join(',');
+    let cur = kids.map((k) => k.id);
+    for (let i = 0; i < desired.length; i += 1) {
+      const id = desired[i];
+      const pos = cur.indexOf(id);
+      if (pos === i) continue;
+      await placeAt(id, parentId, i);
+      cur.splice(pos, 1);
+      cur.splice(i, 0, id);
+    }
+    const after = (await chrome.bookmarks.getChildren(parentId)).map((k) => k.id).join(',');
+    if (before !== after) await reloadNow();
+  }
+
   async function finishDrag(tile, parentId, container, intent) {
     if (intent && intent.side === 'group') {
       if (intent.el.classList.contains('folder')) await moveNode(tile.dataset.id, intent.el.dataset.id, -1);
@@ -632,7 +686,7 @@
     }
 
     const snap = await folderSnapshot(parentId);
-    pushUndo('布局调整', () => restoreSnapshot(snap));
+    pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
     if (intent) {
       await insertBeside(tile.dataset.id, parentId, intent.el.dataset.id, intent.side);
       return;
@@ -817,7 +871,7 @@
     if (!box) return;
     const n = state.selection.size;
     box.hidden = n === 0;
-    if (n) $('bulkCount').textContent = '已选 ' + n + ' 项';
+    if (n) $('bulkCount').textContent = t('bulk.selected', { n: n });
   }
 
   function clearSelection() {
@@ -860,7 +914,7 @@
           await reloadNow();
         }
       }));
-    if (!items.length) { toast('没有其他分页可移动'); return; }
+    if (!items.length) { toast(t('toast.noOtherPage')); return; }
     const r = anchor.getBoundingClientRect();
     showMenu(r.left, r.top - 12, items);
   }
@@ -868,7 +922,7 @@
   async function bulkDelete() {
     const ids = Array.from(state.selection);
     if (!ids.length) return;
-    if (!confirm('删除选中的 ' + ids.length + ' 项？会同步删除浏览器书签。')) return;
+    if (!confirm(t('bulk.deleteConfirm', { n: ids.length }))) return;
     const snaps = [];
     for (const id of ids) {
       try {
@@ -878,13 +932,106 @@
     }
     for (const id of ids) await removeNode(id, true);
     if (snaps.length) {
-      pushUndo('批量删除 ' + snaps.length + ' 项', async () => {
+      pushUndo(t('undo.bulkDelete', { n: snaps.length }), async () => {
         for (const node of snaps) await recreate(node, node.parentId, node.index);
       });
     }
     clearSelection();
     await reloadNow();
-    toast('已删除 ' + snaps.length + ' 项');
+    toast(t('toast.bulkDeleted', { n: snaps.length }));
+  }
+
+  /* ---------- 触屏长按拖拽 ---------- */
+  // 移动端与触摸屏笔记本上 HTML5 拖放不可用，用 touch 事件补一套：
+  // 长按 380ms 进入拖拽，期间手指移动超过 12px 视为滚动，直接放弃。
+  function enableTouchDrag(tile, item, ctx, container) {
+    let timer = 0;
+    let active = false;
+    let ghost = null;
+    let intent = null;
+    let sx = 0;
+    let sy = 0;
+    let dragged = false;
+
+    function cleanup() {
+      clearTimeout(timer);
+      timer = 0;
+      active = false;
+      tile.classList.remove('dragging');
+      delete tile.dataset.count;
+      if (ghost) { ghost.remove(); ghost = null; }
+      clearIntent();
+    }
+
+    function placeGhost(x, y) {
+      if (!ghost) return;
+      ghost.style.left = (x - ghost.offsetWidth / 2) + 'px';
+      ghost.style.top = (y - ghost.offsetHeight / 2) + 'px';
+    }
+
+    tile.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      const tp = e.touches[0];
+      sx = tp.clientX;
+      sy = tp.clientY;
+      timer = setTimeout(() => {
+        active = true;
+        dragged = true;
+        const n = state.selection.size;
+        tile.classList.add('dragging');
+        if (n > 1 && state.selection.has(item.id)) tile.dataset.count = t('intro.dragCount', { n });
+        ghost = tile.cloneNode(true);
+        ghost.classList.add('touch-ghost');
+        ghost.removeAttribute('data-count');
+        document.body.appendChild(ghost);
+        placeGhost(sx, sy);
+        if (navigator.vibrate) navigator.vibrate(10);
+      }, 380);
+    }, { passive: true });
+
+    tile.addEventListener('touchmove', (e) => {
+      const tp = e.touches[0];
+      if (!tp) return;
+      if (!active) {
+        if (Math.abs(tp.clientX - sx) + Math.abs(tp.clientY - sy) > 12) {
+          clearTimeout(timer);
+          timer = 0;
+        }
+        return;
+      }
+      e.preventDefault();
+      placeGhost(tp.clientX, tp.clientY);
+      intent = intentAt(container, { excludeId: item.id, pointer: { x: tp.clientX, y: tp.clientY } });
+      paintIntent(intent);
+    }, { passive: false });
+
+    tile.addEventListener('touchend', async () => {
+      if (!active) { clearTimeout(timer); return; }
+      const group = state.selection.size > 1 && state.selection.has(item.id) ? Array.from(state.selection) : null;
+      const drag = { id: item.id, parentId: ctx.parentId, isFolder: !item.url, group: group };
+      const hit = intent;
+      cleanup();
+      await applyDrop(drag, hit, ctx.parentId);
+      setTimeout(() => { dragged = false; }, 0);
+    });
+
+    tile.addEventListener('touchcancel', () => cleanup());
+
+    tile.addEventListener('click', (e) => {
+      if (!dragged) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragged = false;
+    }, true);
+  }
+
+  function bindTouchDrag(grid, parentId) {
+    if (state.layout === 'free') return;
+    Array.from(grid.children).forEach((t) => {
+      if (!t.classList.contains('tile')) return;
+      const item = findNode(t.dataset.id, state.roots);
+      if (item) enableTouchDrag(t, item, { parentId: parentId }, grid);
+    });
   }
 
   /* ---------- 图标与文件夹 ---------- */
@@ -918,7 +1065,7 @@
 
     const label = document.createElement('span');
     label.className = 'name';
-    label.textContent = item.title || hostOf(item.url) || '未命名';
+    label.textContent = item.title || hostOf(item.url) || t('item.untitled');
     if (isFolder) {
       const n = document.createElement('span');
       n.className = 'n';
@@ -953,14 +1100,19 @@
 
     tile.addEventListener('dragstart', (e) => {
       if (state.layout === 'free') { e.preventDefault(); return; }
-      state.drag = { id: item.id, parentId: ctx.parentId, isFolder };
+      const group = state.selection.size > 1 && state.selection.has(item.id)
+        ? Array.from(state.selection)
+        : null;
+      state.drag = { id: item.id, parentId: ctx.parentId, isFolder, group };
       tile.classList.add('dragging');
+      if (group) tile.dataset.count = t('intro.dragCount', { n: group.length });
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', item.id);
     });
     tile.addEventListener('dragend', () => {
       clearIntent();
       tile.classList.remove('dragging');
+      delete tile.dataset.count;
       state.drag = null;
     });
     tile.addEventListener('dragover', (e) => {
@@ -981,13 +1133,7 @@
       });
       clearIntent();
       state.drag = null;
-      if (!intent) { await moveNode(drag.id, ctx.parentId, -1); return; }
-      if (intent.side === 'group') {
-        if (intent.el.classList.contains('folder')) await moveNode(drag.id, intent.el.dataset.id, -1);
-        else await groupTiles(drag.id, intent.el.dataset.id, ctx.parentId);
-        return;
-      }
-      await insertBeside(drag.id, ctx.parentId, intent.el.dataset.id, intent.side);
+      await applyDrop(drag, intent, ctx.parentId);
     });
 
     return tile;
@@ -1002,13 +1148,13 @@
 
     const group = currentGroup();
     if (!group) {
-      grid.innerHTML = '<p class="empty">这个书签根目录是空的，点侧栏的新建分页开始。</p>';
+      grid.innerHTML = '<p class="empty">' + t('empty.root') + '</p>';
       return;
     }
     const kids = childrenOf(group);
     if (!kids.length) {
       grid.style.height = '';
-      grid.innerHTML = '<p class="empty">这一页还没有书签，点右下角加号新增。</p>';
+      grid.innerHTML = '<p class="empty">' + t('empty.page') + '</p>';
       return;
     }
     const parentId = parentIdOf(group);
@@ -1019,6 +1165,7 @@
       Array.from(grid.children).forEach((t) => { if (t.classList.contains('tile')) enableFreeDrag(t, parentId, grid); });
     } else {
       grid.style.height = '';
+      bindTouchDrag(grid, parentId);
     }
 
     grid.ondragover = (e) => {
@@ -1067,7 +1214,7 @@
       }
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = node.title || '未命名';
+      b.textContent = node.title || t('item.untitled');
       b.addEventListener('click', () => closeFolder(i + 1));
       crumbs.appendChild(b);
     });
@@ -1077,7 +1224,7 @@
     grid.textContent = '';
     const kids = top.children || [];
     if (!kids.length) {
-      grid.innerHTML = '<p class="empty">空文件夹。</p>';
+      grid.innerHTML = '<p class="empty">' + t('empty.folder') + '</p>';
       return;
     }
     grid.classList.toggle('free', state.layout === 'free');
@@ -1088,6 +1235,7 @@
       Array.from(grid.children).forEach((t) => { if (t.classList.contains('tile')) enableFreeDrag(t, top.id, grid); });
     } else {
       grid.style.height = '';
+      bindTouchDrag(grid, top.id);
     }
 
     grid.ondragover = (e) => {
@@ -1126,9 +1274,9 @@
   }
 
   async function moveNode(id, parentId, index) {
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     if (id === parentId || isInside(id, parentId)) {
-      toast('不能把文件夹移动到它自己或它的子文件夹里');
+      toast(t('folder.cannotNest'));
       return;
     }
     let old = null;
@@ -1140,20 +1288,20 @@
     try {
       await placeAt(id, parentId, typeof index === 'number' ? index : -1);
       if (old) {
-        pushUndo('移动', () => placeAt(id, old.parentId, Math.max(old.index, 0)));
+        pushUndo(t('undo.move'), () => placeAt(id, old.parentId, Math.max(old.index, 0)));
       }
     } catch (e) {
-      toast('移动失败：' + e.message);
+      toast(t('toast.moveFail', { msg: e.message }));
     }
   }
 
   async function removeNode(id, quiet) {
-    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
     let snap = null;
     try { const [node] = await chrome.bookmarks.getSubTree(id); snap = node; } catch (e) { snap = null; }
     await chrome.bookmarks.removeTree(id).catch(async () => { await chrome.bookmarks.remove(id); });
     if (snap && !quiet) {
-      pushUndo('删除「' + (snap.title || '未命名') + '」', () => recreate(snap, snap.parentId, snap.index));
+      pushUndo(t('undo.delete', { title: snap.title || t('item.untitled') }), () => recreate(snap, snap.parentId, snap.index));
     }
   }
 
@@ -1246,14 +1394,14 @@
     if (item.url) {
       const targets = moveTargets(item, ctx);
       showMenu(x, y, [
-        { label: '在新标签页打开', onClick: () => window.open(item.url, '_blank', 'noopener') },
-        { label: '在当前页打开', onClick: () => { location.href = item.url; } },
-        { label: '复制网址', onClick: () => copyText(item.url) },
+        { label: t('menu.openNewTab'), onClick: () => window.open(item.url, '_blank', 'noopener') },
+        { label: t('menu.openHere'), onClick: () => { location.href = item.url; } },
+        { label: t('menu.copyUrl'), onClick: () => copyText(item.url) },
         { sep: true },
-        { label: '编辑', onClick: () => openForm(item, ctx) },
-        { label: '移动到分页', submenu: targets, disabled: !targets.length },
+        { label: t('menu.edit'), onClick: () => openForm(item, ctx) },
+        { label: t('menu.moveToPage'), submenu: targets, disabled: !targets.length },
         { sep: true },
-        { label: '删除书签', danger: true, onClick: () => deleteItem(item) }
+        { label: t('menu.deleteBookmark'), danger: true, onClick: () => deleteItem(item) }
       ]);
       return;
     }
@@ -1261,13 +1409,13 @@
     const kids = (item.children || []).filter((c) => c.url);
     const targets = moveTargets(item, ctx);
     showMenu(x, y, [
-      { label: '打开', onClick: () => openFolder(item) },
-      { label: '在新标签页打开全部', hint: kids.length ? String(kids.length) : '', disabled: !kids.length, onClick: () => openAll(kids) },
+      { label: t('menu.open'), onClick: () => openFolder(item) },
+      { label: t('menu.openAll'), hint: kids.length ? String(kids.length) : '', disabled: !kids.length, onClick: () => openAll(kids) },
       { sep: true },
-      { label: '重命名', onClick: () => openForm(item, ctx) },
-      { label: '移动到分页', submenu: targets, disabled: !targets.length },
+      { label: t('menu.renamePage'), onClick: () => openForm(item, ctx) },
+      { label: t('menu.moveToPage'), submenu: targets, disabled: !targets.length },
       { sep: true },
-      { label: '删除文件夹', danger: true, onClick: () => deleteItem(item) }
+      { label: t('menu.deleteFolder'), danger: true, onClick: () => deleteItem(item) }
     ]);
   }
 
@@ -1276,32 +1424,32 @@
     state.coords[id] = {};
     saveCoords();
     render();
-    toast('已按顺序重排');
+    toast(t('toast.moved'));
   }
 
   function blankMenu(x, y) {
     showMenu(x, y, [
-      { label: '搜索书签和标签', onClick: openPalette },
-      { label: '撤销上一步', hint: 'Ctrl+Z', onClick: undoLast },
+      { label: t('menu.search'), onClick: openPalette },
+      { label: t('menu.undo'), hint: 'Ctrl+Z', onClick: undoLast },
       { sep: true },
-      { label: '添加书签', onClick: () => openForm(null, { parentId: defaultParentId() }) },
-      { label: '新建文件夹', onClick: addFolder },
-      { label: '新建分页', onClick: addPage },
+      { label: t('menu.addBookmark'), onClick: () => openForm(null, { parentId: defaultParentId() }) },
+      { label: t('menu.newFolder'), onClick: addFolder },
+      { label: t('menu.newPage'), onClick: addPage },
       { sep: true },
-      { label: '更换壁纸', onClick: () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; } }
-    ].concat(state.layout === 'free' ? [{ sep: true }, { label: '整理布局', onClick: resetLayout }] : []));
+      { label: t('menu.changeWallpaper'), onClick: () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; } }
+    ].concat(state.layout === 'free' ? [{ sep: true }, { label: t('menu.tidy'), onClick: resetLayout }] : []));
   }
 
   function deleteItem(item) {
-    const label = item.title || '未命名';
-    if (!confirm('确定删除「' + label + '」？此操作会同步删除浏览器书签。')) return;
+    const label = item.title || t('item.untitled');
+    if (!confirm(t('confirm.delete', { title: label }))) return;
     removeNode(item.id);
   }
 
   function openAll(nodes) {
     const urls = nodes.map((n) => n.url).filter(Boolean);
-    if (!urls.length) { toast('这里面没有链接'); return; }
-    if (urls.length > 12 && !confirm('一次打开 ' + urls.length + ' 个标签页？')) return;
+    if (!urls.length) { toast(t('toast.noLinks')); return; }
+    if (urls.length > 12 && !confirm(t('confirm.openAll', { n: urls.length }))) return;
     urls.forEach((u) => {
       if (hasAPI && chrome.tabs && chrome.tabs.create) chrome.tabs.create({ url: u, active: false });
       else window.open(u, '_blank', 'noopener');
@@ -1311,7 +1459,7 @@
   async function copyText(text) {
     try {
       await navigator.clipboard.writeText(text);
-      toast('已复制网址');
+      toast(t('menu.copyOk'));
     } catch (e) {
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -1319,8 +1467,8 @@
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); toast('已复制网址'); }
-      catch (e2) { toast('复制失败，请手动复制'); }
+      try { document.execCommand('copy'); toast(t('menu.copyOk')); }
+      catch (e2) { toast(t('menu.copyFail')); }
       ta.remove();
     }
   }
@@ -1329,7 +1477,7 @@
 
   /* ---------- 搜索源 ---------- */
   function allSources() {
-    return [{ id: 'local', name: '书签与标签' }].concat(ENGINES).concat(state.customs);
+    return [{ id: 'local', name: t('search.local') }].concat(ENGINES).concat(state.customs);
   }
 
   function currentSource() {
@@ -1339,7 +1487,7 @@
   function renderEngine() {
     const src = currentSource();
     $('engineName').textContent = src.name;
-    $('q').placeholder = state.engine === 'local' ? '搜索书签与标签，Ctrl+K' : '在 ' + src.name + ' 搜索，Ctrl+K';
+    $('q').placeholder = state.engine === 'local' ? t('search.placeholderLocal') : t('search.placeholderEngine', { name: src.name });
   }
 
   function setEngine(id) {
@@ -1355,21 +1503,21 @@
 
   function sourceMenu() {
     const rect = $('engineBtn').getBoundingClientRect();
-    const items = [{ label: '书签与标签', hint: state.engine === 'local' ? '当前' : '', onClick: () => setEngine('local') }, { sep: true }];
-    ENGINES.forEach((e) => items.push({ label: e.name, hint: state.engine === e.id ? '当前' : '', onClick: () => setEngine(e.id) }));
+    const items = [{ label: t('search.local'), hint: state.engine === 'local' ? t('menu.current') : '', onClick: () => setEngine('local') }, { sep: true }];
+    ENGINES.forEach((e) => items.push({ label: e.name, hint: state.engine === e.id ? t('menu.current') : '', onClick: () => setEngine(e.id) }));
     if (state.customs.length) {
       items.push({ sep: true });
       state.customs.forEach((e) => items.push({
         label: e.name,
-        hint: state.engine === e.id ? '当前' : '',
+        hint: state.engine === e.id ? t('menu.current') : '',
         submenu: [
-          { label: '使用', onClick: () => setEngine(e.id) },
-          { label: '删除', danger: true, onClick: () => removeEngine(e.id) }
+          { label: t('menu.use'), onClick: () => setEngine(e.id) },
+          { label: t('menu.delete'), danger: true, onClick: () => removeEngine(e.id) }
         ]
       }));
     }
     items.push({ sep: true });
-    items.push({ label: '添加自定义搜索引擎…', onClick: addEngineForm });
+    items.push({ label: t('menu.addEngine'), onClick: addEngineForm });
     showMenu(rect.left, rect.bottom + 6, items);
   }
 
@@ -1382,7 +1530,7 @@
 
   function addEngineForm() {
     state.formMode = 'engine';
-    $('formTitle').textContent = '添加搜索引擎';
+    $('formTitle').textContent = t('form.addEngine');
     $('fName').value = '';
     $('fUrl').value = '';
     $('fUrl').placeholder = 'https://example.com/search?q=%s';
@@ -1426,7 +1574,7 @@
     const out = [];
     (function walk(nodes, path) {
       for (const n of nodes || []) {
-        const here = n.url ? path : path.concat(n.title || '未命名');
+        const here = n.url ? path : path.concat(n.title || t('item.untitled'));
         if (n.url) out.push({ type: 'book', id: n.id, title: n.title || hostOf(n.url), url: n.url, path: path.join(' / ') });
         if (n.children) walk(n.children, here);
       }
@@ -1460,7 +1608,7 @@
 
   function engineName(id) {
     const hit = allSources().find((s) => s.id === id);
-    return hit ? hit.name : '搜索';
+    return hit ? hit.name : t('search.local');
   }
 
   function clearHistory() {
@@ -1526,7 +1674,7 @@
         const clear = document.createElement('button');
         clear.type = 'button';
         clear.className = 'fclear';
-        clear.textContent = '清空';
+        clear.textContent = t('search.clear');
         clear.addEventListener('mousedown', (e) => e.preventDefault());
         clear.addEventListener('click', (e) => { e.stopPropagation(); clearHistory(); });
         head.appendChild(clear);
@@ -1541,7 +1689,7 @@
     if (hasAPI && !tabs.length && finder.tabTotal > 0) {
       const note = document.createElement('div');
       note.className = 'pnote';
-      note.textContent = '读到 ' + finder.tabTotal + ' 个标签，但拿不到标题和网址：tabs 权限未生效。到扩展页点一次「重新加载」，若提示新权限要确认启用。点这里重试。';
+      note.textContent = t('search.permissionNote', { n: finder.tabTotal });
       note.addEventListener('click', async () => {
         finder.tabs = await loadTabs();
         refreshFinder(finder.where === 'palette' ? $('pq').value : $('q').value);
@@ -1552,16 +1700,16 @@
     if (!finder.items.length) {
       const p = document.createElement('p');
       p.className = 'empty';
-      p.textContent = '没有匹配的标签或书签';
+      p.textContent = t('search.empty');
       host.appendChild(p);
     } else {
-      group('最近搜索', hist, true);
-      group('标签', tabs, false);
-      group('书签', books, false);
+      group(t('search.recent'), hist, true);
+      group(t('search.tabs'), tabs, false);
+      group(t('search.books'), books, false);
     }
 
     const count = finder.where === 'palette' ? $('pcount') : $('fcount');
-    if (count) count.textContent = finder.items.length + ' 项';
+    if (count) count.textContent = t('search.count', { n: finder.items.length });
   }
 
   function finderRow(item, index) {
@@ -1587,8 +1735,8 @@
     highlightInto(title, item.title, finder.key);
     const sub = document.createElement('span');
     sub.className = 'purl';
-    if (item.type === 'history') sub.textContent = '用 ' + engineName(item.engine) + ' 搜索';
-    else if (item.type === 'tab') sub.textContent = hostOf(item.url) + (item.active ? ' · 当前标签' : '');
+    if (item.type === 'history') sub.textContent = t('search.usedWith', { name: engineName(item.engine) });
+    else if (item.type === 'tab') sub.textContent = hostOf(item.url) + (item.active ? ' · ' + t('search.currentTab') : '');
     else sub.textContent = item.path || hostOf(item.url);
     main.append(title, sub);
     row.append(icon, main);
@@ -1618,10 +1766,10 @@
     if (state.engine === 'local') recordSearch($('q').value);
     closeFinder();
     if (item.type === 'tab') {
-      if (!hasAPI || item.demo) { toast('演示模式不能切换标签页'); return; }
+      if (!hasAPI || item.demo) { toast(t('toast.demoNoTab')); return; }
       chrome.tabs.update(item.id, { active: true })
         .then(() => { if (item.windowId != null && chrome.windows) chrome.windows.update(item.windowId, { focused: true }); })
-        .catch((e) => toast('切换失败：' + e.message));
+        .catch((e) => toast(t('toast.switchFail', { msg: e.message })));
       return;
     }
     location.href = item.url;
@@ -1688,7 +1836,7 @@
     state.formMode = 'bookmark';
     state.editing = { item, ctx };
     const isEdit = !!item;
-    $('formTitle').textContent = isEdit ? (item.url ? '编辑书签' : '重命名文件夹') : '添加书签';
+    $('formTitle').textContent = isEdit ? (item.url ? t('form.editBookmark') : t('folder.rename')) : t('menu.addBookmark');
     $('fName').value = isEdit ? item.title || '' : '';
     $('fUrl').value = isEdit ? item.url || '' : '';
     $('fUrl').parentElement.hidden = !!(isEdit && !item.url);
@@ -1706,31 +1854,31 @@
     err.hidden = true;
 
     if (state.formMode === 'engine') {
-      if (!name) { err.textContent = '名称不能为空'; err.hidden = false; return; }
-      if (!url || url.indexOf('%s') < 0) { err.textContent = '地址里要用 %s 表示关键词位置'; err.hidden = false; return; }
-      if (!/^https?:\/\//i.test(url)) { err.textContent = '地址需要以 http 开头'; err.hidden = false; return; }
+      if (!name) { err.textContent = t('form.errName'); err.hidden = false; return; }
+      if (!url || url.indexOf('%s') < 0) { err.textContent = t('form.errEngineTpl'); err.hidden = false; return; }
+      if (!/^https?:\/\//i.test(url)) { err.textContent = t('form.errUrlHttp'); err.hidden = false; return; }
       const id = 'c' + Date.now();
       state.customs.push({ id: id, name: name, url: url });
       store.set('customs', state.customs);
       $('modal').hidden = true;
       state.formMode = 'bookmark';
       setEngine(id);
-      toast('已添加并切换');
+      toast(t('toast.engineAdded'));
       return;
     }
 
-    if (!name) { err.textContent = '名称不能为空'; err.hidden = false; return; }
+    if (!name) { err.textContent = t('form.errName'); err.hidden = false; return; }
     if (!editing || !editing.item || editing.item.url) {
-      if (!url) { err.textContent = '网址不能为空'; err.hidden = false; return; }
+      if (!url) { err.textContent = t('form.errUrl'); err.hidden = false; return; }
       if (!/^(https?|ftp|file|chrome|edge|about):/i.test(url) && !/^[\w.-]+\.[a-z]{2,}/i.test(url)) {
-        err.textContent = '网址格式不对';
+        err.textContent = t('form.errUrlFormat');
         err.hidden = false;
         return;
       }
     }
     const finalUrl = url && !/^[a-z]+:/i.test(url) ? 'https://' + url : url;
 
-    if (!hasAPI) { toast('演示模式不能保存'); $('modal').hidden = true; return; }
+    if (!hasAPI) { toast(t('toast.demoNoSave')); $('modal').hidden = true; return; }
 
     try {
       if (editing && editing.item) {
@@ -1739,7 +1887,7 @@
         const oldTitle = editing.item.title || '';
         const oldUrl = editing.item.url || '';
         await chrome.bookmarks.update(editing.item.id, patch);
-        pushUndo('修改「' + (oldTitle || '未命名') + '」', () => {
+        pushUndo(t('undo.editBookmark', { title: oldTitle || t('item.untitled') }), () => {
           const back = { title: oldTitle };
           if (oldUrl) back.url = oldUrl;
           return chrome.bookmarks.update(editing.item.id, back);
@@ -1747,11 +1895,11 @@
       } else {
         const parentId = (editing && editing.ctx && editing.ctx.parentId) || defaultParentId();
         const created = await chrome.bookmarks.create({ parentId, title: name, url: finalUrl });
-        if (created && created.id) pushUndo('新增「' + name + '」', () => chrome.bookmarks.remove(created.id));
+        if (created && created.id) pushUndo(t('undo.newBookmark', { title: name }), () => chrome.bookmarks.remove(created.id));
       }
       $('modal').hidden = true;
     } catch (ex) {
-      err.textContent = '保存失败：' + ex.message;
+      err.textContent = t('toast.saveFail', { msg: ex.message });
       err.hidden = false;
     }
   }
@@ -1789,7 +1937,7 @@
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        reject(new Error('无法读取这张图片'));
+        reject(new Error(t('toast.imageUnreadable')));
       };
       img.src = url;
     });
@@ -1858,7 +2006,7 @@
       b.type = 'button';
       b.style.backgroundImage = w.css;
       b.setAttribute('aria-pressed', String(!state.image && state.wall === k));
-      b.title = '预设壁纸';
+      b.title = t('settings.wallpaper');
       b.addEventListener('click', () => {
         state.wall = k;
         state.image = null;
@@ -1893,7 +2041,7 @@
     const picker = document.createElement('input');
     picker.type = 'color';
     picker.value = /^#[0-9a-f]{6}$/i.test(state.accent) ? state.accent : '#3d6cf0';
-    picker.title = '自定义';
+    picker.title = t('settings.custom');
     picker.addEventListener('input', (e) => {
       state.accent = e.target.value;
       store.set('accent', state.accent);
@@ -1909,7 +2057,7 @@
     state.roots.forEach((r, i) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = r.title || ('根 ' + (i + 1));
+      b.textContent = r.title || (t('settings.rootPrefix') + ' ' + (i + 1));
       b.setAttribute('aria-pressed', String(i === state.rootIdx));
       b.addEventListener('click', () => {
         state.rootIdx = i;
@@ -1949,7 +2097,7 @@
     el.textContent = '';
     el.append(pad(d.getHours()) + ':' + pad(d.getMinutes()));
     const s = document.createElement('small');
-    s.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日 周' + '日一二三四五六'[d.getDay()];
+    s.textContent = t('clock.date', { m: d.getMonth() + 1, d: d.getDate(), w: t('clock.weekdays').split(',')[d.getDay()] });
     el.appendChild(s);
   }
 
@@ -2056,18 +2204,18 @@
       const file = e.target.files && e.target.files[0];
       e.target.value = '';
       if (!file) return;
-      if (!/^image\//.test(file.type)) { toast('请选择图片文件'); return; }
-      if (file.size > 12 * 1024 * 1024) { toast('图片太大，请选 12MB 以内的'); return; }
+      if (!/^image\//.test(file.type)) { toast(t('toast.wallBadType')); return; }
+      if (file.size > 12 * 1024 * 1024) { toast(t('toast.wallTooLarge')); return; }
       try {
         const data = await compressImage(file);
         const ok = await store.set('image', data);
-        if (!ok) { toast('壁纸存不进去，换一张小一点的'); return; }
+        if (!ok) { toast(t('toast.wallTooBig')); return; }
         state.image = data;
         applyWall();
         renderSwatches();
-        toast('壁纸已更新');
+        toast(t('toast.wallOk'));
       } catch (err) {
-        toast('壁纸处理失败：' + (err && err.message ? err.message : '无法读取图片'));
+        toast(t('toast.wallFail', { msg: (err && err.message) || t('toast.imageUnreadable') }));
       }
     });
     $('clearImage').addEventListener('click', () => {
@@ -2201,6 +2349,25 @@
     setInterval(tick, 20000);
   }
 
-  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, intentAt: intentAt, state: state };
+  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, insertManyBeside: insertManyBeside, applyDrop: applyDrop, intentAt: intentAt, state: state };
+
+  // 把能力交给插件内核，再启动插件。
+  // 目前 i18n 是第一个插件，其余功能仍在这个文件里，后续可以按同样方式逐个搬出去。
+  if (window.Deck) {
+    Object.assign(window.Deck.host, {
+      state: state,
+      t: t,
+      toast: toast,
+      store: store,
+      reload: reloadNow,
+      render: render,
+      findNode: (id) => findNode(id, state.roots),
+      openFolder: openFolder,
+      showMenu: showMenu
+    });
+    window.Deck.register({ id: 'core-ui' });
+    window.Deck.start();
+  }
+
   boot();
 })();

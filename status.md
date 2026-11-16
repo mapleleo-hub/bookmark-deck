@@ -2,6 +2,11 @@
 
 ## 当前进度
 
+- 插件内核：`core.js` 提供 register / 依赖顺序 / 事件总线 / 命令表，`i18n` 已作为插件挂入；`app.js` 通过 `Deck.host` 暴露 state、store、toast、reload、render、findNode。其余功能仍是内置形式，待逐个迁移。
+- 多语言：约 190 条文案的中英字典，`data-i18n` 覆盖静态文本，JS 走 `t()`；`?lang=` 可强制，缺 key 回退中文并 warn。
+- 手势：整组拖动（多选后拖一个，带「N 项」徽标）与触屏长按拖拽（380ms、位移 12px 取消、跟手浮层），落点语义与鼠标共用 `applyDrop`。
+
+
 - 工程化（0.2.0）：`node tests/run.mjs` 跑 7 项冒烟（渲染、相邻插入、覆盖建组、搜索高亮、键盘导航、多选、Esc），`python scripts/pack.py` 产 120KB 发布包；manifest 有图标、中英文案、background service worker、`browser_specific_settings`。
 - 键盘与多选：方向键按几何位置移动焦点（roving tabindex），Home/End 首尾，F2 改名，Delete 删除；Ctrl/Cmd 点切换、Shift 点范围、Shift+方向累积，底部批量条支持整批移动与删除（一次撤销恢复全部）。
 - 引导与无障碍：`?intro=1` 打开引导面板，安装时 background 自动打开一次；尊重 `prefers-reduced-motion`。
@@ -41,6 +46,10 @@
 - 可选：图标包（manifest `icons`）、搜索结果按分组聚合展示、书签根为"移动设备书签"时的图标回退。
 
 ## 已知坑
+- 打包脚本必须把 newtab.html 引用到的脚本全部列进白名单，否则扩展打开即白屏。`pack.py` 已加引用校验，新增脚本要同步改 `FILES`。
+- `applyDrop` / `insertManyBeside` 里 kids 是节点对象数组，取 id 时必须 `.map(k => k.id)`；直接把对象传给 `bookmarks.move` 会异步失败且不冒泡到调用方。
+- 触屏拖拽靠 `touchmove` 的 `preventDefault` 阻止滚动，监听必须 `{ passive: false }`。
+
 - MV3 扩展页面的 CSP 是 `script-src 'self'`，内联 `<script>` 会被拒绝执行。演示引导逻辑已抽到 `demo.js`，别再往 HTML 里写内联脚本。
 - `chrome.storage.local` 默认 10MB。壁纸以前直接存原图（6MB 上限）已接近红线，现在统一压缩后再存。
 - 打包用 `scripts/pack.py`，不要直接把仓库目录压成 zip：`dev/`、`.git`、预览图都会进去。
@@ -74,6 +83,10 @@
 - 书签数据没有坐标字段，自由摆放做不到，只能网格排序，这是路线选择不是缺陷。
 
 ## 决策记录
+- 2026-11-16 插件化先做内核不做拆库。理由：把 1900 行拆成九个文件会引入大量跨文件闭包，风险高于收益；先立注册表与事件总线，让新功能以插件形式加入，旧功能按需迁移。
+- 2026-11-16 i18n 用 data-i18n 属性而不是整页重渲染。理由：静态文本在加载时替换一次即可，重渲染会让输入框焦点、滚动位置丢失。
+- 2026-11-16 触屏用 touch 事件而非 pointer。理由：需要 `passive: false` 精确控制滚动抑制，pointer 事件在移动端的 passive 默认值不可控。
+
 - 2026-11-16 测试桩复刻 Chrome 的 move 补偿语义，而不是按直觉实现"移除后插入"。理由：桩与实现犯同一个错时测试全绿，比没有测试更危险，上一轮的"右侧提示插到左边"就是这样漏掉的。
 - 2026-11-16 打包脚本走白名单而不是黑名单。理由：仓库里会持续长出预览图、构建产物、演示数据，黑名单每次都要补。
 - 2026-11-16 i18n 只做 manifest 层（扩展名与描述）。理由：界面文案有 200 多处，一次性替换的风险远大于收益，先把基础设施（`_locales` + `default_locale`）立起来。

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>新标签页</title>
+<title data-i18n="app.title">新标签页</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -13,15 +13,15 @@
   <aside class="rail" id="rail">
     <div class="rail-brand">
       <span class="dot"></span>
-      <span class="rail-label" id="brandText">书签</span>
-      <button class="rail-toggle" id="railToggle" title="收起侧栏">‹</button>
+      <span class="rail-label" id="brandText" data-i18n="app.brand">书签</span>
+      <button class="rail-toggle" id="railToggle" data-i18n-title="rail.collapse" title="收起侧栏">‹</button>
     </div>
     <nav class="pages" id="pages"></nav>
-    <button class="page add" id="addPage" title="新建分页">
+    <button class="page add" id="addPage" data-i18n-title="rail.addPage" title="新建分页">
       <span class="av plus">
         <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
       </span>
-      <span class="label">新建分页</span>
+      <span class="label" data-i18n="rail.addPage">新建分页</span>
     </button>
   </aside>
 
@@ -30,17 +30,17 @@
       <div class="clock" id="clock"></div>
       <div class="search-wrap">
         <div class="search">
-          <button type="button" class="engine" id="engineBtn" title="选择搜索源">
-            <span id="engineName">书签与标签</span>
+          <button type="button" class="engine" id="engineBtn" data-i18n-title="search.engineTitle" title="选择搜索源">
+            <span id="engineName" data-i18n="search.local">书签与标签</span>
             <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <span class="search-sep"></span>
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <input id="q" type="search" placeholder="搜索，Ctrl+K" autocomplete="off" spellcheck="false">
+          <input id="q" type="search" data-i18n-placeholder="search.placeholder" placeholder="搜索，Ctrl+K" autocomplete="off" spellcheck="false">
         </div>
         <div class="finder" id="finder" hidden>
           <div class="finder-list" id="flist"></div>
-          <div class="palette-foot"><span id="fcount"></span><span>↑↓ 选择 · Enter 打开 · Esc 关闭</span></div>
+          <div class="palette-foot"><span id="fcount"></span><span data-i18n="search.foot">↑↓ 选择 · Enter 打开 · Esc 关闭</span></div>
         </div>
       </div>
     </header>
@@ -52,7 +52,7 @@
   <div class="sheet">
     <div class="sheet-head">
       <div class="crumbs" id="crumbs"></div>
-      <button class="icon-btn" id="closeOverlay" title="关闭">×</button>
+      <button class="icon-btn" id="closeOverlay" data-i18n-title="search.close" title="关闭">×</button>
     </div>
     <div class="grid" id="subgrid"></div>
   </div>
@@ -62,11 +62,11 @@
   <div class="palette-box">
     <div class="palette-head">
       <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <input id="pq" placeholder="搜索标签与书签" autocomplete="off" spellcheck="false">
-      <button class="icon-btn" id="closePalette" title="关闭">×</button>
+      <input id="pq" data-i18n-placeholder="search.placeholderLocal" placeholder="搜索书签与标签" autocomplete="off" spellcheck="false">
+      <button class="icon-btn" id="closePalette" data-i18n-title="search.close" title="关闭">×</button>
     </div>
     <div class="palette-list" id="plist"></div>
-    <div class="palette-foot"><span id="pcount"></span><span>↑↓ 选择 · Enter 打开 · Esc 关闭</span></div>
+    <div class="palette-foot"><span id="pcount"></span><span data-i18n="search.foot">↑↓ 选择 · Enter 打开 · Esc 关闭</span></div>
   </div>
 </section>
 
@@ -74,105 +74,107 @@
 
 <div class="modal" id="modal" hidden>
   <form class="box" id="form">
-    <h3 id="formTitle">添加书签</h3>
-    <label>名称<input id="fName" required maxlength="200"></label>
-    <label>网址<input id="fUrl" placeholder="https://" autocomplete="off"></label>
+    <h3 id="formTitle" data-i18n="form.addBookmark">添加书签</h3>
+    <label><span data-i18n="form.name">名称</span><input id="fName" required maxlength="200"></label>
+    <label><span data-i18n="form.url">网址</span><input id="fUrl" placeholder="https://" autocomplete="off"></label>
     <p class="err" id="fErr" hidden></p>
     <div class="row">
-      <button type="button" class="ghost" id="fCancel">取消</button>
-      <button type="submit" class="primary" id="fOk">保存</button>
+      <button type="button" class="ghost" id="fCancel" data-i18n="form.cancel">取消</button>
+      <button type="submit" class="primary" id="fOk" data-i18n="form.save">保存</button>
     </div>
   </form>
 </div>
 
 <aside class="drawer" id="drawer" hidden>
   <div class="sheet-head">
-    <h3>设置</h3>
-    <button class="icon-btn" id="closeDrawer" title="关闭">×</button>
+    <h3 data-i18n="settings.title">设置</h3>
+    <button class="icon-btn" id="closeDrawer" data-i18n-title="search.close" title="关闭">×</button>
   </div>
   <div class="field">
-    <span class="label">主题</span>
+    <span class="label" data-i18n="settings.theme">主题</span>
     <div class="seg" id="themeSeg">
-      <button data-theme="auto">跟随壁纸</button><button data-theme="light">浅色</button><button data-theme="dark">深色</button>
+      <button data-theme="auto" data-i18n="settings.themeAuto">跟随壁纸</button><button data-theme="light" data-i18n="settings.themeLight">浅色</button><button data-theme="dark" data-i18n="settings.themeDark">深色</button>
     </div>
   </div>
   <div class="field">
-    <span class="label">主题色</span>
+    <span class="label" data-i18n="settings.accent">主题色</span>
     <div class="accents" id="accentRow"></div>
   </div>
   <div class="field">
-    <span class="label">壁纸</span>
+    <span class="label" data-i18n="settings.wallpaper">壁纸</span>
     <div class="swatches" id="swatches"></div>
     <div class="row gap">
-      <button class="ghost" id="pickImage">选本地图片</button>
-      <button class="ghost" id="clearImage">清除</button>
+      <button class="ghost" id="pickImage" data-i18n="settings.pickImage">选本地图片</button>
+      <button class="ghost" id="clearImage" data-i18n="settings.clear">清除</button>
     </div>
     <input type="file" id="fileImage" accept="image/*" hidden>
   </div>
   <div class="field">
-    <span class="label">布局</span>
+    <span class="label" data-i18n="settings.layout">布局</span>
     <div class="seg" id="layoutSeg">
-      <button data-layout="grid">网格</button><button data-layout="free">自由摆放</button>
+      <button data-layout="grid" data-i18n="settings.layoutGrid">网格</button><button data-layout="free" data-i18n="settings.layoutFree">自由摆放</button>
     </div>
-    <p class="note">自由摆放的坐标存在本机，不随书签同步；拖一个图标压到另一个图标上会新建文件夹把两者收进去。</p>
+    <p class="note" data-i18n="settings.layoutNote">自由摆放的坐标存在本机，不随书签同步；拖一个图标压到另一个图标上会新建文件夹把两者收进去。</p>
   </div>
   <div class="field">
-    <span class="label">图标大小</span>
+    <span class="label" data-i18n="settings.size">图标大小</span>
     <div class="seg" id="sizeSeg">
-      <button data-size="s">小</button><button data-size="m">中</button><button data-size="l">大</button>
+      <button data-size="s" data-i18n="settings.sizeS">小</button><button data-size="m" data-i18n="settings.sizeM">中</button><button data-size="l" data-i18n="settings.sizeL">大</button>
     </div>
   </div>
   <div class="field">
-    <label class="inline"><input type="checkbox" id="showEmpty"> 显示空分页</label>
+    <label class="inline"><input type="checkbox" id="showEmpty"><span data-i18n="settings.showEmpty">显示空分页</span></label>
   </div>
   <div class="field" id="devBlock" hidden>
-    <span class="label">开发</span>
+    <span class="label" data-i18n="settings.dev">开发</span>
     <div class="row gap">
-      <button class="ghost" id="reloadExt">重载扩展</button>
-      <span class="note" style="align-self:center">改完代码点它，再按 F5</span>
+      <button class="ghost" id="reloadExt" data-i18n="settings.reload">重载扩展</button>
+      <span class="note" style="align-self:center" data-i18n="settings.reloadNote">改完代码点它，再按 F5</span>
     </div>
   </div>
   <div class="field">
-    <span class="label">书签来源</span>
+    <span class="label" data-i18n="settings.root">书签来源</span>
     <div class="seg" id="rootSeg"></div>
-    <p class="note">换源后仍读写同一份书签，只是显示哪个根目录。</p>
+    <p class="note" data-i18n="settings.rootNote">换源后仍读写同一份书签，只是显示哪个根目录。</p>
   </div>
 </aside>
 
 <div class="fab">
-  <button class="icon-btn big" id="addFolderBtn" title="新建文件夹">
+  <button class="icon-btn big" id="addFolderBtn" data-i18n-title="menu.newFolder" title="新建文件夹">
     <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3.5 6.5a2 2 0 0 1 2-2h3.6l1.8 2h7.6a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 11v4M10 13h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
   </button>
-  <button class="icon-btn big" id="addBtn" title="添加书签">
+  <button class="icon-btn big" id="addBtn" data-i18n-title="menu.addBookmark" title="添加书签">
     <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
   </button>
-  <button class="icon-btn big" id="gearBtn" title="设置">
+  <button class="icon-btn big" id="gearBtn" data-i18n-title="settings.title" title="设置">
     <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.65 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>
   </button>
 </div>
 
 <section class="intro" id="intro" hidden>
   <div class="intro-box" role="dialog" aria-labelledby="introTitle">
-    <h2 id="introTitle">欢迎使用 Bookmark Deck</h2>
-    <p class="intro-sub">它直接读写浏览器书签，没有第二份数据，所以不存在两套内容不一致的问题。</p>
+    <h2 id="introTitle" data-i18n="intro.title">欢迎使用 Bookmark Deck</h2>
+    <p class="intro-sub" data-i18n="intro.sub">它直接读写浏览器书签，没有第二份数据，所以不存在两套内容不一致的问题。</p>
     <ul class="intro-list">
-      <li><b>左侧分页</b>就是书签栏的一级文件夹。底部「新建分页」等于新建文件夹，删除分页也会连同里面的书签一起删。</li>
-      <li><b>拖到另一个图标上</b>会新建文件夹把两者收进去；<b>拖到它的左右两侧</b>只是调整顺序，两种情况提示框不一样。</li>
-      <li><b>Ctrl+K</b> 搜书签和标签，<b>Ctrl+Z</b> 撤销上一步，方向键在网格里移动，<b>Ctrl/Shift 点击</b>可以多选。</li>
+      <li data-i18n-html="intro.p1"><b>左侧分页</b>就是书签栏的一级文件夹。底部「新建分页」等于新建文件夹，删除分页也会连同里面的书签一起删。</li>
+      <li data-i18n-html="intro.p2"><b>拖到另一个图标上</b>会新建文件夹把两者收进去；<b>拖到它的左右两侧</b>只是调整顺序，两种情况提示框不一样。</li>
+      <li data-i18n-html="intro.p3"><b>Ctrl+K</b> 搜书签和标签，<b>Ctrl+Z</b> 撤销上一步，方向键在网格里移动，<b>Ctrl/Shift 点击</b>可以多选。</li>
     </ul>
-    <button type="button" class="intro-ok" id="introOk">开始使用</button>
+    <button type="button" class="intro-ok" id="introOk" data-i18n="intro.ok">开始使用</button>
   </div>
 </section>
 
 <div class="bulk" id="bulk" hidden>
   <span class="bulk-count" id="bulkCount"></span>
-  <button type="button" id="bulkMove">移动到分页</button>
-  <button type="button" id="bulkDelete" class="danger">删除</button>
-  <button type="button" class="bulk-x" id="bulkClear" title="取消选择">×</button>
+  <button type="button" id="bulkMove" data-i18n="bulk.move">移动到分页</button>
+  <button type="button" id="bulkDelete" class="danger" data-i18n="bulk.delete">删除</button>
+  <button type="button" class="bulk-x" id="bulkClear" data-i18n-title="bulk.cancel" title="取消选择">×</button>
 </div>
 
 <div class="toast" id="toast" hidden></div>
 
+<script src="core.js"></script>
+<script src="i18n.js"></script>
 <script src="demo.js"></script>
 <script src="app.js"></script>
 </body>

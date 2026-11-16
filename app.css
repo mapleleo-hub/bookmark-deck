@@ -363,6 +363,32 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   height: calc(var(--icon) + 46px);
 }
 
+.tile.touch-ghost {
+  position: fixed;
+  z-index: 95;
+  margin: 0;
+  pointer-events: none;
+  opacity: .95;
+  transform: scale(1.05);
+  filter: drop-shadow(0 12px 24px rgba(10, 14, 24, .28));
+}
+
+.tile[data-count]::after {
+  content: attr(data-count);
+  position: absolute;
+  z-index: 6;
+  top: -6px;
+  right: 2px;
+  padding: 2px 7px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgba(12, 16, 26, .28);
+  pointer-events: none;
+}
+
 .grid.free .tile.dragging {
   z-index: 10;
   transition: none;
@@ -407,6 +433,9 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
 }
 
 .tile {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   width: var(--tile-w);
   position: relative;
   display: flex;

@@ -5,12 +5,13 @@
 产物：dist/  （可直接用于「加载已解压的扩展程序」或提交商店）
 """
 import os
+import re
 import shutil
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'dist')
 
-FILES = ['manifest.json', 'newtab.html', 'app.js', 'app.css', 'demo.js', 'background.js']
+FILES = ['manifest.json', 'newtab.html', 'app.js', 'app.css', 'core.js', 'i18n.js', 'demo.js', 'background.js']
 DIRS = ['icons', '_locales']
 
 
@@ -32,6 +33,11 @@ def main():
         for base, _dirs, files in os.walk(dst):
             for f in files:
                 total += os.path.getsize(os.path.join(base, f))
+    # 防呆：HTML 里引用到的脚本必须都在包里，漏一个扩展就打不开
+    html = open(os.path.join(OUT, 'newtab.html'), encoding='utf-8').read()
+    for ref in re.findall(r'src="([^"]+)"', html):
+        if not os.path.exists(os.path.join(OUT, ref)):
+            raise SystemExit('打包缺文件: ' + ref)
     print('dist/ 已生成，共 %.1f KB' % (total / 1024))
 
 

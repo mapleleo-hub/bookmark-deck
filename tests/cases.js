@@ -36,6 +36,7 @@
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   window.runTests = async function () {
+    try {
     const all = tiles();
     ok('渲染当前分页', all.length > 0, 'tile 数量 ' + all.length);
 
@@ -89,11 +90,66 @@
     await wait(80);
     ok('Esc 清空选择', document.querySelectorAll('.tile.selected').length === 0);
 
+    // 整组拖动：选中两个，拖其中一个到目标右侧，两个都要跟过去且顺序不变
+    await wait(200);
+    const g1 = tiles();
+    g1[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    g1[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    const beforeGroup = order('116');
+    const picked = [g1[0].dataset.id, g1[1].dataset.id];
+    const dt = new DataTransfer();
+    const target = g1[g1.length - 1];
+    const c = center(target);
+    g1[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const armed = g1[0].dataset.count || '';
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: c.x + c.w * 0.5, clientY: c.y }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: c.x + c.w * 0.5, clientY: c.y }));
+    await wait(420);
+    const afterGroup = order('116');
+    const tail = afterGroup.slice(afterGroup.indexOf(target.dataset.id) + 1).slice(0, 2);
+    ok('整组拖动', armed !== '' && tail.join(',') === picked.join(','),
+      '徽标=' + armed + ' picked=' + picked.join(',') + ' ' + beforeGroup.join(',') + ' -> ' + afterGroup.join(',') + ' log=' + JSON.stringify(window.__test.log.slice(-8)));
+
+    // 触屏长按拖拽
+    await wait(300);
+    const t5 = tiles();
+    const src5 = t5[0];
+    const dst5 = t5[2];
+    const s5 = center(src5);
+    const d5 = center(dst5);
+    const beforeTouch = order('116');
+    const touchAt = (el, type, x, y) => {
+      const tp = new Touch({ identifier: 7, target: el, clientX: x, clientY: y });
+      el.dispatchEvent(new TouchEvent(type, {
+        bubbles: true, cancelable: true,
+        touches: type === 'touchend' ? [] : [tp],
+        targetTouches: type === 'touchend' ? [] : [tp],
+        changedTouches: [tp]
+      }));
+    };
+    touchAt(src5, 'touchstart', s5.x, s5.y);
+    await wait(440);
+    const ghost = document.querySelectorAll('.touch-ghost').length;
+    touchAt(src5, 'touchmove', d5.x + d5.w * 0.5, d5.y);
+    await wait(60);
+    touchAt(src5, 'touchend', d5.x + d5.w * 0.5, d5.y);
+    await wait(420);
+    const afterTouch = order('116');
+    ok('触屏长按拖拽', ghost === 1 && beforeTouch.join(',') !== afterTouch.join(','),
+      'ghost=' + ghost + ' ' + beforeTouch.join(',') + ' -> ' + afterTouch.join(','));
+
     const box = document.createElement('pre');
     box.id = 'result';
     box.textContent = JSON.stringify(results);
     document.body.appendChild(box);
     return results;
+    } catch (err) {
+      results.push({ name: '用例执行异常', pass: false, detail: String(err && err.stack || err) });
+      const box = document.createElement('pre');
+      box.id = 'result';
+      box.textContent = JSON.stringify(results);
+      document.body.appendChild(box);
+    }
   };
 
   setTimeout(() => { window.runTests(); }, 700);
