@@ -43,7 +43,9 @@
     history: [],
     engine: 'google',
     customs: [],
-    overlay: []
+    overlay: [],
+    selection: new Set(),
+    selAnchor: null
   };
 
   /* ---------- 存储 ---------- */
@@ -221,6 +223,7 @@
       btn.addEventListener('click', () => {
         state.activeId = g.id;
         closeFinder();
+        clearSelection();
         $('q').value = '';
         render();
       });
@@ -696,6 +699,179 @@
     }, true);
   }
 
+  /* ---------- 网格键盘导航 ---------- */
+  function focusTile(el) {
+    if (!el) return;
+    Array.from(el.parentElement.children).forEach((n) => {
+      if (n.classList && n.classList.contains('tile')) n.tabIndex = n === el ? 0 : -1;
+    });
+    el.focus();
+  }
+
+  function neighborOf(cur, all, key) {
+    const box = (n) => (n.querySelector('.frame') || n).getBoundingClientRect();
+    const r0 = box(cur);
+    const cx = (r0.left + r0.right) / 2;
+    const cy = (r0.top + r0.bottom) / 2;
+    let best = null;
+    let bestScore = Infinity;
+    all.forEach((t) => {
+      if (t === cur) return;
+      const r = box(t);
+      const dx = (r.left + r.right) / 2 - cx;
+      const dy = (r.top + r.bottom) / 2 - cy;
+      let ok = false;
+      if (key === 'ArrowRight') ok = dx > 4 && Math.abs(dx) > Math.abs(dy) * 0.5;
+      if (key === 'ArrowLeft') ok = dx < -4 && Math.abs(dx) > Math.abs(dy) * 0.5;
+      if (key === 'ArrowDown') ok = dy > 4 && Math.abs(dy) > Math.abs(dx) * 0.5;
+      if (key === 'ArrowUp') ok = dy < -4 && Math.abs(dy) > Math.abs(dx) * 0.5;
+      if (!ok) return;
+      const score = Math.abs(dx) + Math.abs(dy);
+      if (score < bestScore) { bestScore = score; best = t; }
+    });
+    return best;
+  }
+
+  // 方向键在网格里移动焦点，Enter 打开文件夹，F2 改名，Delete 删除
+  function initGridKeyboard(grid) {
+    const tilesOf = () => Array.from(grid.children).filter((n) => n.classList.contains('tile'));
+    const list = tilesOf();
+    list.forEach((t, i) => { t.tabIndex = i === 0 ? 0 : -1; });
+
+    grid.onkeydown = (e) => {
+      const cur = e.target.closest && e.target.closest('.tile');
+      if (!cur || !grid.contains(cur)) return;
+      const all = tilesOf();
+      const step = (el) => { e.preventDefault(); focusTile(el); };
+
+      if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown'].indexOf(e.key) >= 0) {
+        if (e.shiftKey) {
+          state.selection.add(cur.dataset.id);
+          if (!state.selAnchor) state.selAnchor = cur.dataset.id;
+          syncSelection();
+        }
+        const next = neighborOf(cur, all, e.key);
+        if (next) step(next);
+        return;
+      }
+      if (e.key === 'Home' || e.key === 'End') {
+        const next = e.key === 'Home' ? all[0] : all[all.length - 1];
+        if (next) step(next);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === ' ') {
+        const item = findNode(cur.dataset.id, state.roots);
+        if (!item) return;
+        if (item.url) return; // 链接交给 <a> 的默认行为
+        e.preventDefault();
+        openFolder(item);
+        return;
+      }
+      if (e.key === 'F2') {
+        const item = findNode(cur.dataset.id, state.roots);
+        if (!item) return;
+        e.preventDefault();
+        openForm(item, { parentId: cur.dataset.parent });
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const item = findNode(cur.dataset.id, state.roots);
+        if (!item) return;
+        e.preventDefault();
+        deleteItem(item);
+      }
+    };
+  }
+
+  /* ---------- 多选 ---------- */
+  function tilesOf(container) {
+    return Array.from(container.children).filter((n) => n.classList.contains('tile'));
+  }
+
+  function syncSelection() {
+    document.querySelectorAll('.tile.selected').forEach((n) => n.classList.remove('selected'));
+    state.selection.forEach((id) => {
+      const node = document.querySelector('.tile[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      if (node) node.classList.add('selected');
+    });
+    updateBulk();
+  }
+
+  function updateBulk() {
+    const box = $('bulk');
+    if (!box) return;
+    const n = state.selection.size;
+    box.hidden = n === 0;
+    if (n) $('bulkCount').textContent = '已选 ' + n + ' 项';
+  }
+
+  function clearSelection() {
+    state.selection.clear();
+    state.selAnchor = null;
+    syncSelection();
+  }
+
+  function toggleSelect(tile) {
+    const id = tile.dataset.id;
+    if (state.selection.has(id)) state.selection.delete(id);
+    else state.selection.add(id);
+    state.selAnchor = id;
+    syncSelection();
+  }
+
+  function selectRange(tile) {
+    const list = tilesOf(tile.parentElement).map((n) => n.dataset.id);
+    const to = list.indexOf(tile.dataset.id);
+    const from = list.indexOf(state.selAnchor || tile.dataset.id);
+    if (to < 0) return;
+    if (from < 0) { state.selection.add(tile.dataset.id); syncSelection(); return; }
+    const lo = Math.min(from, to);
+    const hi = Math.max(from, to);
+    for (let i = lo; i <= hi; i += 1) state.selection.add(list[i]);
+    syncSelection();
+  }
+
+  function bulkMoveMenu(anchor) {
+    const ids = Array.from(state.selection);
+    if (!ids.length) return;
+    const here = state.activeId;
+    const items = state.groups
+      .filter((g) => g.id !== here && !g.virtual)
+      .map((g) => ({
+        label: g.title,
+        onClick: async () => {
+          for (const id of ids) await moveNode(id, parentIdOf(g), -1);
+          clearSelection();
+          await reloadNow();
+        }
+      }));
+    if (!items.length) { toast('没有其他分页可移动'); return; }
+    const r = anchor.getBoundingClientRect();
+    showMenu(r.left, r.top - 12, items);
+  }
+
+  async function bulkDelete() {
+    const ids = Array.from(state.selection);
+    if (!ids.length) return;
+    if (!confirm('删除选中的 ' + ids.length + ' 项？会同步删除浏览器书签。')) return;
+    const snaps = [];
+    for (const id of ids) {
+      try {
+        const [node] = await chrome.bookmarks.getSubTree(id);
+        if (node) snaps.push(node);
+      } catch (e) { /* 已被别处删掉，跳过 */ }
+    }
+    for (const id of ids) await removeNode(id, true);
+    if (snaps.length) {
+      pushUndo('批量删除 ' + snaps.length + ' 项', async () => {
+        for (const node of snaps) await recreate(node, node.parentId, node.index);
+      });
+    }
+    clearSelection();
+    await reloadNow();
+    toast('已删除 ' + snaps.length + ' 项');
+  }
+
   /* ---------- 图标与文件夹 ---------- */
   function makeTile(item, ctx) {
     const isFolder = !item.url;
@@ -737,6 +913,23 @@
     tile.append(frame, label);
 
     if (isFolder) tile.addEventListener('click', (e) => { e.preventDefault(); openFolder(item); });
+
+    // 多选：Ctrl/Cmd 点击切换，Shift 点击范围选，普通点击清空后照常打开
+    tile.addEventListener('click', (e) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        selectRange(tile);
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSelect(tile);
+        return;
+      }
+      if (state.selection.size) clearSelection();
+    }, true);
 
     tile.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -824,6 +1017,9 @@
       clearIntent();
       await moveNode(state.drag.id, parentId, -1);
     };
+
+    initGridKeyboard(grid);
+    syncSelection();
   }
 
   function render() {
@@ -890,6 +1086,9 @@
       clearIntent();
       await moveNode(state.drag.id, top.id, -1);
     };
+
+    initGridKeyboard(grid);
+    syncSelection();
   }
 
   /* ---------- 写操作 ---------- */
@@ -933,12 +1132,12 @@
     }
   }
 
-  async function removeNode(id) {
+  async function removeNode(id, quiet) {
     if (!hasAPI) { toast('演示模式不能保存'); return; }
     let snap = null;
     try { const [node] = await chrome.bookmarks.getSubTree(id); snap = node; } catch (e) { snap = null; }
     await chrome.bookmarks.removeTree(id).catch(async () => { await chrome.bookmarks.remove(id); });
-    if (snap) {
+    if (snap && !quiet) {
       pushUndo('删除「' + (snap.title || '未命名') + '」', () => recreate(snap, snap.parentId, snap.index));
     }
   }
@@ -1257,11 +1456,34 @@
 
   async function refreshFinder(query) {
     const seq = ++finder.seq;
+    finder.key = (query || '').trim().toLowerCase();
     const items = await buildResults(query);
     if (seq !== finder.seq) return;
     finder.items = items;
     if (finder.index >= finder.items.length) finder.index = Math.max(finder.items.length - 1, 0);
     paintFinder();
+  }
+
+  // 输入时先等 90ms，避免每敲一个字符就遍历一遍书签树
+  const refreshFinderSoon = debounce((query) => { refreshFinder(query); }, 90);
+
+  // 把命中片段包进 <mark>，长标题里能直接看出匹配在哪
+  function highlightInto(el, text, key) {
+    const src = text == null ? '' : String(text);
+    if (!key) { el.textContent = src; return; }
+    const lower = src.toLowerCase();
+    let at = lower.indexOf(key);
+    if (at < 0) { el.textContent = src; return; }
+    let from = 0;
+    while (at >= 0) {
+      if (at > from) el.appendChild(document.createTextNode(src.slice(from, at)));
+      const mark = document.createElement('mark');
+      mark.textContent = src.slice(at, at + key.length);
+      el.appendChild(mark);
+      from = at + key.length;
+      at = lower.indexOf(key, from);
+    }
+    if (from < src.length) el.appendChild(document.createTextNode(src.slice(from)));
   }
 
   function finderHost() {
@@ -1347,7 +1569,7 @@
     main.className = 'pmain';
     const title = document.createElement('span');
     title.className = 'ptitle';
-    title.textContent = item.title;
+    highlightInto(title, item.title, finder.key);
     const sub = document.createElement('span');
     sub.className = 'purl';
     if (item.type === 'history') sub.textContent = '用 ' + engineName(item.engine) + ' 搜索';
@@ -1722,8 +1944,10 @@
       if (state.engine === 'local') openInlineFinder();
     });
     $('q').addEventListener('input', () => {
-      if (state.engine === 'local') openInlineFinder();
-      else closeFinder();
+      if (state.engine !== 'local') { closeFinder(); return; }
+      if (finder.where !== 'inline' || $('finder').hidden) { openInlineFinder(); return; }
+      finder.index = 0;
+      refreshFinderSoon($('q').value);
     });
     $('q').addEventListener('keydown', (e) => {
       if (state.engine === 'local') { finderKey(e); return; }
@@ -1754,13 +1978,18 @@
         else if (!$('finder').hidden) closeFinder();
         else if (!$('modal').hidden) $('modal').hidden = true;
         else if (!$('drawer').hidden) $('drawer').hidden = true;
+        else if (state.selection.size) clearSelection();
         else if (state.overlay.length) closeFolder(state.overlay.length - 1);
       }
     });
 
+    $('bulkMove').addEventListener('click', (e) => bulkMoveMenu(e.currentTarget));
+    $('bulkDelete').addEventListener('click', bulkDelete);
+    $('bulkClear').addEventListener('click', clearSelection);
+
     $('pq').addEventListener('input', (e) => {
       finder.index = 0;
-      refreshFinder(e.target.value);
+      refreshFinderSoon(e.target.value);
     });
     $('pq').addEventListener('keydown', finderKey);
     $('closePalette').addEventListener('click', closePalette);
