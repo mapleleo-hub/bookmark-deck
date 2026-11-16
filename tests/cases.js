@@ -226,6 +226,42 @@
       ok('整组拖进文件夹', false, '页面上没有可用的文件夹或书签');
     }
 
+    // 越界索引：撤销与批量放回都拿旧快照里的索引，列表变短时必须夹到合法区间
+    const pageId = '116';
+    const kidsBefore = order(pageId);
+    let clamped = true;
+    try {
+      await window.__bd.placeAt(kidsBefore[kidsBefore.length - 1], pageId, 999);
+    } catch (e) {
+      clamped = false;
+    }
+    const afterClamp = order(pageId);
+    ok('越界索引夹到末尾不报错', clamped && afterClamp.join(',') === kidsBefore.join(','),
+      'clamped=' + clamped + ' ' + kidsBefore.join(',') + ' -> ' + afterClamp.join(','));
+
+    // 建组后撤销：目标在顺序里比被拖项靠后，回滚必须按索引升序放回
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(300);
+    const g8 = tiles().filter((n) => !n.classList.contains('folder'));
+    if (g8.length >= 2) {
+      const snapOrder = order(pageId);
+      const c8 = center(g8[1]);
+      const dt8 = new DataTransfer();
+      // 拖前一个覆盖到后一个：目标索引比源索引大，回滚最容易放错位
+      g8[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt8 }));
+      g8[1].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt8, clientX: c8.x, clientY: c8.y }));
+      g8[1].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt8, clientX: c8.x, clientY: c8.y }));
+      await wait(700);
+      const grouped = order(pageId);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+      await wait(900);
+      const restored = order(pageId);
+      ok('建组后撤销逐位还原', grouped.length === snapOrder.length - 1 && restored.join(',') === snapOrder.join(','),
+        snapOrder.join(',') + ' -> 建组 ' + grouped.join(',') + ' -> 撤销 ' + restored.join(','));
+    } else {
+      ok('建组后撤销逐位还原', false, '可用书签不足 2 个');
+    }
+
     const box = document.createElement('pre');
     box.id = 'result';
     box.textContent = JSON.stringify(results);
@@ -233,97 +269,14 @@
     return results;
     } catch (err) {
       results.push({ name: '用例执行异常', pass: false, detail: String(err && err.stack || err) });
-      // 撤销：整组拖动一次 Ctrl+Z 要回到原样
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await wait(250);
-    const beforeUndo = order('116');
-    const u1 = tiles();
-    u1[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
-    u1[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
-    const dtU = new DataTransfer();
-    const tgtU = u1[u1.length - 1];
-    const cU = center(tgtU);
-    u1[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtU }));
-    tgtU.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtU, clientX: cU.x + cU.w * 0.5, clientY: cU.y }));
-    tgtU.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtU, clientX: cU.x + cU.w * 0.5, clientY: cU.y }));
-    await wait(500);
-    const afterMove = order('116');
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
-    await wait(600);
-    const afterUndo = order('116');
-    ok('整组拖动一次撤销回原样', afterMove.join(',') !== beforeUndo.join(',') && afterUndo.join(',') === beforeUndo.join(','),
-      beforeUndo.join(',') + ' -> ' + afterMove.join(',') + ' -撤销-> ' + afterUndo.join(','));
-
-    // 批量移动：两项都要过去，一次撤销全部回来
-    await wait(250);
-    const pair = tiles().slice(0, 2).map((n) => n.dataset.id);
-    const srcOrder = order('116');
-    const dstOrder = order('2');
-    await window.__bd.moveManyTo(pair, '2');
-    await wait(400);
-    const movedDst = order('2');
-    const leftSrc = order('116');
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
-    await wait(700);
-    const backSrc = order('116');
-    const backDst = order('2');
-    const allMoved = pair.every((id) => movedDst.indexOf(id) >= 0 && leftSrc.indexOf(id) < 0);
-    const allBack = pair.every((id) => backDst.indexOf(id) < 0) && backSrc.join(',') === srcOrder.join(',');
-    ok('批量移动全部生效且可一次撤销', allMoved && allBack,
-      '移动后目标=' + movedDst.join(',') + ' 源=' + leftSrc.join(',') + ' | 撤销后源=' + backSrc.join(',') + ' 期望=' + srcOrder.join(','));
-
-    // 整组拖进已有文件夹：两项都要进去，一次撤销回来
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await wait(250);
-    const list6 = tiles();
-    const folderTile = list6.filter((n) => n.classList.contains('folder'))[0];
-    const plain = list6.filter((n) => !n.classList.contains('folder'));
-    if (folderTile && plain.length >= 2) {
-      plain[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
-      plain[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
-      const beforeKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
-      const fc = center(folderTile);
-      const dtF = new DataTransfer();
-      plain[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtF }));
-      folderTile.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtF, clientX: fc.x, clientY: fc.y }));
-      folderTile.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtF, clientX: fc.x, clientY: fc.y }));
-      await wait(600);
-      const afterKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
-      const bothIn = plain.slice(0, 2).every((p) => afterKids.indexOf(p.dataset.id) >= 0);
-      ok('整组拖进文件夹', bothIn && afterKids.length === beforeKids.length + 2,
-        '前=' + beforeKids.join(',') + ' 后=' + afterKids.join(','));
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
-      await wait(700);
-      const backKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
-      ok('整组进文件夹可撤销', backKids.length === beforeKids.length, '撤销后=' + backKids.join(','));
-    } else {
-      ok('整组拖进文件夹', false, '页面上没有可用的文件夹或书签');
-    }
-
-    // 整组覆盖另一个书签：整组加目标一起收进新文件夹
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await wait(300);
-    const list7 = tiles().filter((n) => !n.classList.contains('folder'));
-    if (list7.length >= 3) {
-      list7[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
-      list7[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
-      window.__test.log.length = 0;
-      const tc = center(list7[2]);
-      const dtG = new DataTransfer();
-      list7[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtG }));
-      list7[2].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtG, clientX: tc.x, clientY: tc.y }));
-      list7[2].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtG, clientX: tc.x, clientY: tc.y }));
-      await wait(600);
-      const moves = window.__test.log.filter((x) => x[0] === 'move').length;
-      ok('整组覆盖建组', moves >= 3, '进入新文件夹的条目数=' + moves);
-    } else {
-      ok('整组覆盖建组', false, '书签不足 3 个');
-    }
-
-    const box = document.createElement('pre');
-      box.id = 'result';
-      box.textContent = JSON.stringify(results);
-      document.body.appendChild(box);
+      // 出错也把已有结果交出去，别让整轮测试变成空白
+      try {
+        const box = document.createElement('pre');
+        box.id = 'result';
+        box.textContent = JSON.stringify(results);
+        document.body.appendChild(box);
+      } catch (e) { /* 忽略 */ }
+      return results;
     }
   };
 

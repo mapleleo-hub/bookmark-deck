@@ -316,6 +316,7 @@
   /* ---------- 撤销 ---------- */
   const history = [];
   let undoBusy = false;
+  let undoSkip = 0;
 
   function pushUndo(label, run) {
     if (undoBusy) return;
@@ -328,10 +329,16 @@
     const item = history.pop();
     if (!item) { toast(t('toast.undoNone')); return; }
     undoBusy = true;
+    undoSkip = 0;
     try {
       await item.run();
-      toast(t('toast.undoOk', { label: item.label }));
+      if (undoSkip) toast(t('toast.undoPartial', { n: undoSkip }));
+      else toast(t('toast.undoOk', { label: item.label }));
     } catch (e) {
+      // 失败一次不直接丢掉这步：多半是中途某个 id 变了，再试一次往往能补上；
+      // 连试两次都失败才丢，免得坏记录卡住后面所有撤销
+      item.fails = (item.fails || 0) + 1;
+      if (item.fails < 2) history.push(item);
       toast(t('toast.undoFail', { msg: e.message }));
     } finally {
       undoBusy = false;
@@ -341,7 +348,12 @@
 
   async function recreate(node, parentId, index) {
     const opts = { parentId: parentId, title: node.title || '' };
-    if (index != null) opts.index = index;
+    if (index != null) {
+      // 删除后兄弟数量会变，旧索引可能越界（create 对越界 index 不稳定），先夹一下
+      let room = index;
+      try { room = (await chrome.bookmarks.getChildren(parentId)).length; } catch (e) { room = index; }
+      opts.index = Math.max(0, Math.min(Math.round(index), room));
+    }
     if (node.url) { opts.url = node.url; return chrome.bookmarks.create(opts); }
     const folder = await chrome.bookmarks.create(opts);
     let i = 0;
@@ -361,18 +373,61 @@
   async function restoreSnapshot(snap) {
     let cur = [];
     try { cur = (await chrome.bookmarks.getChildren(snap.parentId)).map((k) => k.id); } catch (e) { cur = []; }
-    for (let i = 0; i < snap.order.length; i += 1) {
-      const id = snap.order[i];
-      const at = cur.indexOf(id);
-      if (at < 0) continue;
-      if (at !== i) {
-        await placeAt(id, snap.parentId, i);
-        cur.splice(at, 1);
-        cur.splice(i, 0, id);
+    // 快照里有、现在已不在本文件夹的项（被移进子文件夹或被删）不能参与排位，
+    // 否则后面每项的目标位次都会错，最后一次 placeAt 还会越界。
+    const alive = {};
+    for (const id of cur) alive[id] = true;
+    const inSnap = {};
+    for (const id of snap.order) inSnap[id] = true;
+    const want = snap.order.filter((id) => alive[id]);
+    for (const id of cur) if (!inSnap[id]) want.push(id);
+    const sim = cur.slice();
+    for (let i = 0; i < want.length; i += 1) {
+      if (sim[i] === want[i]) continue;
+      const from = sim.indexOf(want[i]);
+      if (from < 0) continue;
+      try {
+        await placeAt(want[i], snap.parentId, i);
+      } catch (e) {
+        undoSkip += 1;
+        continue; // 单项失败不拖累整步撤销
       }
+      sim.splice(from, 1);
+      sim.splice(i, 0, want[i]);
     }
     state.coords[snap.parentId] = snap.board;
     saveCoords();
+  }
+
+  // 把一批条目按「原始索引」放回各自父级。索引是同一次快照里算的，
+  // 乱序放回时靠后的索引会超过当时列表长度，所以必须先按索引升序。
+  async function restoreOrigins(origins) {
+    const list = origins.slice().sort((a, b) => {
+      if (a.parentId !== b.parentId) return 0;
+      return a.index - b.index;
+    });
+    for (const o of list) {
+      try {
+        await placeAt(o.id, o.parentId, Math.max(o.index, 0));
+      } catch (e) {
+        undoSkip += 1; /* 已被别处删掉或移走，跳过 */
+      }
+    }
+  }
+
+  // 布局类操作统一走这里：先拍快照，跑完确认真的变了才占用一次撤销位，
+  // 免得「拖回原位」也留下一条按了什么都不动的撤销记录
+  async function withLayoutUndo(parentId, fn) {
+    const snap = await folderSnapshot(parentId);
+    const before = snap.order.join(',');
+    const boardBefore = JSON.stringify(snap.board);
+    await fn();
+    let after = before;
+    try { after = (await chrome.bookmarks.getChildren(parentId)).map((k) => k.id).join(','); } catch (e) { after = before; }
+    const boardAfter = JSON.stringify(state.coords[parentId] || {});
+    if (after === before && boardAfter === boardBefore) return false;
+    pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
+    return true;
   }
 
   /* ---------- 自由布局 ---------- */
@@ -602,8 +657,16 @@
         i += 1;
       }
       pushUndo(t('undo.group', { title: title }), async () => {
-        for (const o of origins) await placeAt(o.id, o.parentId, Math.max(o.index, 0));
-        await chrome.bookmarks.removeTree(folder.id);
+        await restoreOrigins(origins);
+        // 还有项没搬出去就别删文件夹，否则 removeTree 会把它们一起带走
+        let stuck = 0;
+        for (const o of origins) {
+          try {
+            const [n] = await chrome.bookmarks.get(o.id);
+            if (n && n.parentId === folder.id) stuck += 1;
+          } catch (e) { /* 已被删掉，不算卡住 */ }
+        }
+        if (!stuck) await chrome.bookmarks.removeTree(folder.id);
       });
       toast(t('toast.moveInto', { title: title }));
       setTimeout(() => reloadNow(), 60);
@@ -645,22 +708,24 @@
     }
 
     // 一次拖动只记一条撤销：整组插入会连着调很多次 placeAt，逐条记会让 Ctrl+Z 要按十几次
-    const snap = await folderSnapshot(parentId);
-    pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
-
+    // 交给他来判断「真的变了没」，拖回原位不留空撤销
     if (!intent) {
       const ids = group || [drag.id];
       clearSelection();
-      for (const id of ids) await placeAt(id, parentId, -1);
-      await reloadNow();
+      await withLayoutUndo(parentId, async () => {
+        for (const id of ids) {
+          try { await placeAt(id, parentId, -1); } catch (e) { /* 单项失败不中断整组 */ }
+        }
+        await reloadNow();
+      });
       return;
     }
     if (group) {
       clearSelection();
-      await insertManyBeside(group, parentId, intent.el.dataset.id, intent.side);
+      await withLayoutUndo(parentId, () => insertManyBeside(group, parentId, intent.el.dataset.id, intent.side));
       return;
     }
-    await insertBeside(drag.id, parentId, intent.el.dataset.id, intent.side);
+    await withLayoutUndo(parentId, () => insertBeside(drag.id, parentId, intent.el.dataset.id, intent.side));
   }
 
   // 整组移到另一个文件夹，一次撤销可回滚全部
@@ -675,10 +740,12 @@
       } catch (e) { /* 已被别处删掉，跳过 */ }
     }
     if (!origins.length) return;
-    for (const o of origins) await placeAt(o.id, parentId, -1);
-    pushUndo(t('undo.bulkMove', { n: origins.length }), async () => {
-      for (const o of origins) await placeAt(o.id, o.parentId, Math.max(o.index, 0));
-    });
+    let moved = 0;
+    for (const o of origins) {
+      try { await placeAt(o.id, parentId, -1); moved += 1; } catch (e) { /* 单个失败不中断整组 */ }
+    }
+    if (!moved) { render(); return; }
+    pushUndo(t('undo.bulkMove', { n: origins.length }), () => restoreOrigins(origins));
     await reloadNow();
   }
 
@@ -722,13 +789,16 @@
     }
 
     const snap = await folderSnapshot(parentId);
-    pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
+    const boardBefore = JSON.stringify(snap.board);
     if (intent) {
       if (sel) {
         clearSelection();
         await insertManyBeside(sel, parentId, intent.el.dataset.id, intent.side);
       } else {
         await insertBeside(tile.dataset.id, parentId, intent.el.dataset.id, intent.side);
+      }
+      if ((await chrome.bookmarks.getChildren(parentId)).map((k) => k.id).join(',') !== snap.order.join(',')) {
+        pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
       }
       return;
     }
@@ -746,7 +816,11 @@
     if (occupant) board[occupant] = (board[id] || [col, row]).slice();
     board[id] = [col, row];
     applyFreeLayout(container, parentId);
-    applyVisualOrder(parentId);
+    // 等顺序真的写回书签再记撤销，否则快照里的顺序跟撤销时的现状对不上
+    await applyVisualOrder(parentId);
+    if (JSON.stringify(board) !== boardBefore) {
+      pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
+    }
   }
 
   function enableFreeDrag(tile, parentId, container) {
@@ -1289,7 +1363,10 @@
       if (!state.drag || e.target !== grid) return;
       e.preventDefault();
       clearIntent();
-      await moveNode(state.drag.id, parentId, -1);
+      // 多选时整组一起追加到末尾，别只搬被按住的那一个
+      const drag = state.drag;
+      const group = state.selection.has(drag.id) && state.selection.size > 1 ? Array.from(state.selection) : null;
+      await applyDrop({ id: drag.id, group: group }, null, parentId);
     };
 
     initGridKeyboard(grid);
@@ -1359,7 +1436,11 @@
       if (!state.drag || e.target !== grid) return;
       e.preventDefault();
       clearIntent();
-      await moveNode(state.drag.id, top.id, -1);
+      // 同上：多选时整组搬进这个文件夹，撤销也按整组回滚
+      const drag = state.drag;
+      const ids = state.selection.has(drag.id) && state.selection.size > 1 ? Array.from(state.selection) : [drag.id];
+      clearSelection();
+      await moveManyTo(ids, top.id);
     };
 
     initGridKeyboard(grid);
@@ -1379,7 +1460,13 @@
       kids = (dest && dest.children) || [];
     }
     const self = kids.findIndex((k) => k.id === id);
-    const base = afterIndex < 0 ? kids.length - (self >= 0 ? 1 : 0) : afterIndex;
+    // 目标列表的长度：条目本来就在这个父级时，它会被先摘掉，能插的位置少一个
+    const room = self >= 0 ? kids.length - 1 : kids.length;
+    let base = afterIndex == null || afterIndex < 0 ? room : Math.round(afterIndex);
+    if (!isFinite(base)) base = room;
+    // 撤销和批量放回用的都是「旧快照里的索引」，列表一旦比当时短就会越界，
+    // Chrome 对越界 index 不是报错就是插错位置，统一夹到合法区间再交给它
+    base = Math.max(0, Math.min(base, room));
     const index = self >= 0 && base >= self ? base + 1 : base;
     await chrome.bookmarks.move(id, { parentId: parentId, index: index });
     return index;
