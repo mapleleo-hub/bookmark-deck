@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "description": "以浏览器书签为唯一数据源的 iTab 风格新标签页：分组、图标网格、拖拽排序，改动直接写回书签。",
   "minimum_chrome_version": "104",
-  "permissions": ["bookmarks", "favicon", "storage"],
+  "permissions": ["bookmarks", "favicon", "storage", "tabs"],
   "chrome_url_overrides": { "newtab": "newtab.html" }
 }

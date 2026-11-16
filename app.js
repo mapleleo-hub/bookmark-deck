@@ -201,8 +201,6 @@
 
   function pageMenu(x, y, group) {
     showMenu(x, y, [
-      { label: '打开这一页', onClick: () => { state.activeId = group.id; state.query = ''; $('q').value = ''; render(); } },
-      { sep: true },
       { label: '重命名', disabled: group.virtual, onClick: () => renamePage(group) },
       { label: '上移', disabled: group.virtual, onClick: () => reorderPage(group, -1) },
       { label: '下移', disabled: group.virtual, onClick: () => reorderPage(group, 1) },
@@ -598,6 +596,8 @@
 
   function blankMenu(x, y) {
     showMenu(x, y, [
+      { label: '搜索标签页', onClick: openPalette },
+      { sep: true },
       { label: '添加书签', onClick: () => openForm(null, { parentId: defaultParentId() }) },
       { label: '新建文件夹', onClick: addFolder },
       { label: '新建分页', onClick: addPage },
@@ -640,6 +640,92 @@
   }
 
   function hideMenu() { $('menu').hidden = true; }
+
+  /* ---------- 搜索打开着的标签页 ---------- */
+  const palette = { tabs: [], list: [], index: 0 };
+
+  async function listOpenTabs() {
+    if (hasAPI && chrome.tabs) {
+      const tabs = await chrome.tabs.query({});
+      return tabs
+        .filter((t) => t.url && !t.url.startsWith('chrome-extension://') && t.url !== 'chrome://newtab/')
+        .map((t) => ({ id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, active: !!t.active }));
+    }
+    const out = [];
+    (function walk(nodes) {
+      for (const n of nodes || []) {
+        if (n.url && out.length < 12) out.push({ id: out.length + 1, title: n.title || n.url, url: n.url, demo: true });
+        if (n.children) walk(n.children);
+      }
+    })(window.MOCK_TREE ? window.MOCK_TREE.children : []);
+    return out;
+  }
+
+  async function openPalette() {
+    palette.tabs = await listOpenTabs();
+    palette.index = 0;
+    $('pq').value = '';
+    renderPalette('');
+    $('palette').hidden = false;
+    $('pq').focus();
+  }
+
+  function closePalette() { $('palette').hidden = true; }
+
+  function renderPalette(q) {
+    const key = (q || '').trim().toLowerCase();
+    palette.list = palette.tabs.filter((t) => !key || (t.title + ' ' + t.url).toLowerCase().indexOf(key) >= 0);
+    if (palette.index >= palette.list.length) palette.index = Math.max(palette.list.length - 1, 0);
+    const box = $('plist');
+    box.textContent = '';
+    if (!palette.list.length) {
+      const p = document.createElement('p');
+      p.className = 'empty';
+      p.textContent = '没有匹配的标签页';
+      box.appendChild(p);
+    } else {
+      palette.list.forEach((t, i) => box.appendChild(paletteRow(t, i)));
+    }
+    $('pcount').textContent = palette.list.length + ' / ' + palette.tabs.length;
+  }
+
+  function paletteRow(tab, i) {
+    const row = document.createElement('div');
+    row.className = 'prow' + (i === palette.index ? ' on' : '');
+    const icon = document.createElement('span');
+    icon.className = 'picon';
+    icon.appendChild(makeIcon(tab.url, tab.title, 32));
+    const main = document.createElement('span');
+    main.className = 'pmain';
+    const title = document.createElement('span');
+    title.className = 'ptitle';
+    title.textContent = tab.title;
+    const url = document.createElement('span');
+    url.className = 'purl';
+    url.textContent = hostOf(tab.url) + (tab.active ? ' · 当前标签' : '');
+    main.append(title, url);
+    row.append(icon, main);
+    row.addEventListener('click', () => activateTab(tab));
+    row.addEventListener('mousemove', () => {
+      if (palette.index !== i) { palette.index = i; markPalette(); }
+    });
+    return row;
+  }
+
+  function markPalette() {
+    Array.from($('plist').children).forEach((n, i) => n.classList.toggle('on', i === palette.index));
+  }
+
+  async function activateTab(tab) {
+    closePalette();
+    if (!hasAPI || tab.demo) { toast('演示模式不能切换标签页'); return; }
+    try {
+      await chrome.tabs.update(tab.id, { active: true });
+      if (tab.windowId != null && chrome.windows) await chrome.windows.update(tab.windowId, { focused: true });
+    } catch (e) {
+      toast('切换失败：' + e.message);
+    }
+  }
 
   /* ---------- 表单 ---------- */
   function openForm(item, ctx) {
@@ -823,11 +909,34 @@
       }
       if (e.key === 'Escape') {
         hideMenu();
-        if (!$('modal').hidden) $('modal').hidden = true;
+        if (!$('palette').hidden) closePalette();
+        else if (!$('modal').hidden) $('modal').hidden = true;
         else if (!$('drawer').hidden) $('drawer').hidden = true;
         else if (state.overlay.length) closeFolder(state.overlay.length - 1);
       }
     });
+
+    $('pq').addEventListener('input', (e) => { palette.index = 0; renderPalette(e.target.value); });
+    $('pq').addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        palette.index = Math.min(palette.index + 1, palette.list.length - 1);
+        markPalette();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        palette.index = Math.max(palette.index - 1, 0);
+        markPalette();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const tab = palette.list[palette.index];
+        if (tab) activateTab(tab);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closePalette();
+      }
+    });
+    $('closePalette').addEventListener('click', closePalette);
+    $('palette').addEventListener('click', (e) => { if (e.target === $('palette')) closePalette(); });
 
     $('addPage').addEventListener('click', addPage);
     if (hasAPI) {
@@ -928,6 +1037,7 @@
       const hit = state.groups.find((g) => g.id === wanted || g.title === wanted);
       if (hit) state.activeId = hit.id;
     }
+    if (params.get('palette')) openPalette();
     const openIds = (params.get('open') || '').split(',').filter(Boolean);
     if (openIds.length) {
       const path = openIds.map((id) => findNode(id, state.roots));

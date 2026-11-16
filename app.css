@@ -492,6 +492,93 @@ html[data-theme="dark"] .tile .name { text-shadow: 0 1px 3px rgba(0, 0, 0, .5); 
 .menu .item.open > .sub { display: flex; }
 .menu.flip .sub { left: auto; right: calc(100% + 4px); }
 
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 14vh 16px 0;
+  background: rgba(12, 16, 26, .26);
+  backdrop-filter: blur(3px);
+}
+
+.palette-box {
+  width: min(560px, 100%);
+  background: var(--menu-bg);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  box-shadow: 0 30px 60px rgba(10, 14, 24, .32);
+  overflow: hidden;
+}
+
+.palette-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--stroke);
+  color: var(--text-dim);
+}
+
+.palette-head input {
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.palette-list { max-height: 46vh; overflow: auto; padding: 6px; }
+
+.prow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.prow.on { background: rgba(128, 140, 170, .18); }
+
+.picon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.picon img { width: 18px; height: 18px; object-fit: contain; }
+.picon .letter {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+}
+
+.pmain { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.ptitle { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.purl { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.palette-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--stroke);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .toast {
   position: fixed;
   left: 50%;
