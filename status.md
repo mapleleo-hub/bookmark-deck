@@ -23,6 +23,8 @@
 - 可选：图标包（manifest `icons`）、搜索结果按分组聚合展示、书签根为"移动设备书签"时的图标回退。
 
 ## 已知坑
+- `chrome.tabs.query` 在没有 `tabs` 权限时**只返回 tabId**，url 与 title 全部被剥离。此时标签组会静默为空，看起来像"只搜书签"。已加诊断行：读到 N 个标签但拿不到标题时提示去扩展页重新加载。改 manifest 权限后必须回扩展页点一次「重新加载」并确认启用，仅刷新新标签页不会更新权限。
+- 搜索每次打开都重新 `tabs.query`，不用长期缓存，否则新开的标签搜不到。
 - 菜单里给数字或角标用了 `.hint` 类名，与页面空态提示的全局 `.hint`（padding 30/80）撞车，单行菜单项被撑到 140px 高。改名 `.meta` 解决。新增样式尽量加父级限定。
 - 菜单背景不能用 `--pill-active`（0.9 左右且偏透明），压在图标密集区会透出纹理，改用独立的 `--menu-bg`。
 - `chrome.bookmarks.move` 的 `index` 不接受 -1（会报 `Value must be at least 0`）。追加必须显式算成目标子项数，用 `getChildren` 取（`get` 不保证带 children）。同父内向前拖还要再减 1，否则落点偏移一位。已封装为 `appendIndex` 与 `resolveDropIndex`。

@@ -699,12 +699,13 @@
   }
 
   /* ---------- 统一搜索：标签与书签 ---------- */
-  const finder = { items: [], index: 0, where: null, tabs: [], seq: 0 };
+  const finder = { items: [], index: 0, where: null, tabs: [], tabTotal: 0, seq: 0 };
 
   async function loadTabs() {
     if (hasAPI && chrome.tabs) {
-      const tabs = await chrome.tabs.query({});
-      return tabs
+      const raw = await chrome.tabs.query({});
+      finder.tabTotal = raw.length;
+      return raw
         .filter((t) => t.url && !t.url.startsWith('chrome-extension://') && t.url !== 'chrome://newtab/')
         .map((t) => ({ type: 'tab', id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, active: !!t.active }));
     }
@@ -737,7 +738,6 @@
 
   async function buildResults(query) {
     const key = query.trim().toLowerCase();
-    if (!finder.tabs.length) finder.tabs = await loadTabs();
     const tabs = finder.tabs.filter((t) => match(t, key));
     const books = key ? bookmarkIndex().filter((b) => match(b, key)) : [];
     return tabs.concat(books);
@@ -776,6 +776,17 @@
         i += 1;
       });
     };
+
+    if (hasAPI && !tabs.length && finder.tabTotal > 0) {
+      const note = document.createElement('div');
+      note.className = 'pnote';
+      note.textContent = '读到 ' + finder.tabTotal + ' 个标签，但拿不到标题和网址：tabs 权限未生效。到扩展页点一次「重新加载」，若提示新权限要确认启用。点这里重试。';
+      note.addEventListener('click', async () => {
+        finder.tabs = await loadTabs();
+        refreshFinder(finder.where === 'palette' ? $('pq').value : $('q').value);
+      });
+      host.appendChild(note);
+    }
 
     if (!finder.items.length) {
       const p = document.createElement('p');
@@ -836,9 +847,13 @@
   }
 
   async function openInlineFinder() {
+    const already = finder.where === 'inline' && !$('finder').hidden;
     closePalette();
     finder.where = 'inline';
-    finder.index = 0;
+    if (!already) {
+      finder.index = 0;
+      finder.tabs = await loadTabs();
+    }
     $('finder').hidden = false;
     await refreshFinder($('q').value);
   }
@@ -847,7 +862,7 @@
     finder.where = 'palette';
     finder.index = 0;
     $('pq').value = '';
-    if (!finder.tabs.length) finder.tabs = await loadTabs();
+    finder.tabs = await loadTabs();
     $('palette').hidden = false;
     $('pq').focus();
     await refreshFinder('');

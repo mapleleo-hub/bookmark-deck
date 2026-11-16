@@ -102,6 +102,19 @@ body { background: transparent; }
 .finder-list { max-height: 52vh; overflow: auto; padding: 6px; }
 .finder .empty { padding: 18px 10px; }
 
+.pnote {
+  margin: 6px 4px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(217, 69, 63, .1);
+  color: #b83b36;
+  font-size: 12px;
+  line-height: 1.55;
+  cursor: pointer;
+}
+
+html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9d99; }
+
 .fgroup {
   padding: 6px 9px 4px;
   font-size: 11px;
