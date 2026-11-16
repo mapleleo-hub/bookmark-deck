@@ -348,37 +348,32 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   cursor: grabbing;
 }
 
-.grid.free .tile.drop-target .frame {
+.tile.drop-target .frame {
   outline: 2px solid rgba(61, 108, 240, .4);
   outline-offset: 2px;
 }
 
-/* 换位提示：贴在目标的左/右侧 */
-.grid.free .tile.drop-left::before,
-.grid.free .tile.drop-right::after {
+/* 换位提示：贴着图标方块左右侧，不含标题行 */
+.tile.drop-left::before,
+.tile.drop-right::after {
   content: "";
   position: absolute;
-  top: 10px;
-  bottom: 26px;
+  top: 12px;
+  height: var(--icon);
   width: 3px;
   border-radius: 3px;
   background: #3d6cf0;
+  z-index: 3;
 }
 
-.grid.free .tile.drop-left::before { left: -2px; }
-.grid.free .tile.drop-right::after { right: -2px; }
+.tile.drop-left::before { left: calc(50% - var(--icon) / 2 - 8px); }
+.tile.drop-right::after { right: calc(50% - var(--icon) / 2 - 8px); }
 
-/* 建组提示：整个卡片被框住 */
-.tile.group-arm {
-  outline: 3px solid #3d6cf0;
-  outline-offset: 3px;
-  border-radius: 16px;
-  background: rgba(61, 108, 240, .1);
-}
-
+/* 建组提示：只框住图标方块 */
 .tile.group-arm .frame {
-  outline: none;
-  box-shadow: 0 0 0 6px rgba(61, 108, 240, .16);
+  outline: 3px solid #3d6cf0;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 8px rgba(61, 108, 240, .12);
 }
 
 .grid.free .tile.snap-back {
@@ -404,7 +399,7 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
 
 .tile:hover { background: var(--card-hover); border-color: var(--stroke); transform: translateY(-2px); }
 .tile.dragging { opacity: .35; }
-.tile.drop-before { box-shadow: inset 2px 0 0 0 rgba(80, 120, 255, .9); }
+
 
 .tile .frame {
   width: var(--icon);

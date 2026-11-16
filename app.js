@@ -255,6 +255,7 @@
     const title = name.trim() || '新分页';
     if (!hasAPI) { toast('演示模式不能保存'); return; }
     const created = await chrome.bookmarks.create({ parentId: rootNode().id, title });
+    if (created && created.id) pushUndo('新建分页「' + title + '」', () => chrome.bookmarks.removeTree(created.id));
     await reloadNow();
     state.activeId = created.id;
     render();
@@ -265,7 +266,70 @@
     if (name === null) return;
     const title = name.trim() || '新文件夹';
     if (!hasAPI) { toast('演示模式不能保存'); return; }
-    await chrome.bookmarks.create({ parentId: defaultParentId(), title });
+    const created = await chrome.bookmarks.create({ parentId: defaultParentId(), title });
+    if (created && created.id) pushUndo('新建文件夹「' + title + '」', () => chrome.bookmarks.removeTree(created.id));
+  }
+
+  /* ---------- 撤销 ---------- */
+  const history = [];
+  let undoBusy = false;
+
+  function pushUndo(label, run) {
+    if (undoBusy) return;
+    history.push({ label: label, run: run });
+    if (history.length > 40) history.shift();
+  }
+
+  async function undoLast() {
+    if (undoBusy) return;
+    const item = history.pop();
+    if (!item) { toast('没有可撤销的操作'); return; }
+    undoBusy = true;
+    try {
+      await item.run();
+      toast('已撤销：' + item.label);
+    } catch (e) {
+      toast('撤销失败：' + e.message);
+    } finally {
+      undoBusy = false;
+    }
+    await reloadNow();
+  }
+
+  async function recreate(node, parentId, index) {
+    const opts = { parentId: parentId, title: node.title || '' };
+    if (index != null) opts.index = index;
+    if (node.url) { opts.url = node.url; return chrome.bookmarks.create(opts); }
+    const folder = await chrome.bookmarks.create(opts);
+    let i = 0;
+    for (const child of node.children || []) {
+      await recreate(child, folder.id, i);
+      i += 1;
+    }
+    return folder;
+  }
+
+  async function folderSnapshot(parentId) {
+    let order = [];
+    try { order = (await chrome.bookmarks.getChildren(parentId)).map((k) => k.id); } catch (e) { order = []; }
+    return { parentId: parentId, order: order, board: JSON.parse(JSON.stringify(state.coords[parentId] || {})) };
+  }
+
+  async function restoreSnapshot(snap) {
+    let cur = [];
+    try { cur = (await chrome.bookmarks.getChildren(snap.parentId)).map((k) => k.id); } catch (e) { cur = []; }
+    for (let i = 0; i < snap.order.length; i += 1) {
+      const id = snap.order[i];
+      const at = cur.indexOf(id);
+      if (at < 0) continue;
+      if (at !== i) {
+        await chrome.bookmarks.move(id, { parentId: snap.parentId, index: i });
+        cur.splice(at, 1);
+        cur.splice(i, 0, id);
+      }
+    }
+    state.coords[snap.parentId] = snap.board;
+    saveCoords();
   }
 
   /* ---------- 自由布局 ---------- */
@@ -428,6 +492,7 @@
     document.querySelectorAll('.tile.group-arm').forEach((n) => n.classList.remove('group-arm'));
     armState.id = tile.dataset.id;
     armState.timer = setTimeout(() => {
+      document.querySelectorAll('.tile.drop-left, .tile.drop-right').forEach((n) => n.classList.remove('drop-left', 'drop-right'));
       tile.classList.add('group-arm');
       tile.dataset.armed = '1';
     }, 320);
@@ -460,10 +525,27 @@
     const name = prompt('把这两项放进新文件夹，取个名字', '新建文件夹');
     if (name === null) { render(); return; }
     const title = name.trim() || '新建文件夹';
+    let beforeA = null;
+    let beforeB = null;
+    try {
+      const [na] = await chrome.bookmarks.get(aId);
+      const [nb] = await chrome.bookmarks.get(bId);
+      const sa = await chrome.bookmarks.getChildren(na.parentId);
+      const sb = await chrome.bookmarks.getChildren(nb.parentId);
+      beforeA = { parentId: na.parentId, index: sa.findIndex((k) => k.id === aId) };
+      beforeB = { parentId: nb.parentId, index: sb.findIndex((k) => k.id === bId) };
+    } catch (e) { beforeA = null; }
     try {
       const folder = await chrome.bookmarks.create({ parentId: parentId, title: title });
       await chrome.bookmarks.move(aId, { parentId: folder.id, index: 0 });
       await chrome.bookmarks.move(bId, { parentId: folder.id, index: 1 });
+      if (beforeA && beforeB) {
+        pushUndo('建组「' + title + '」', async () => {
+          await chrome.bookmarks.move(aId, { parentId: beforeA.parentId, index: Math.max(beforeA.index, 0) });
+          await chrome.bookmarks.move(bId, { parentId: beforeB.parentId, index: Math.max(beforeB.index, 0) });
+          await chrome.bookmarks.removeTree(folder.id);
+        });
+      }
       toast('已收进「' + title + '」');
       setTimeout(() => reloadNow(), 60);
     } catch (e) {
@@ -491,6 +573,10 @@
   }
 
   async function finishDrag(tile, parentId, container, target, side, targetEl) {
+    if (!target) {
+      const snap = await folderSnapshot(parentId);
+      pushUndo('布局调整', () => restoreSnapshot(snap));
+    }
     if (target) {
       if (target.classList.contains('folder')) {
         await moveNode(tile.dataset.id, target.dataset.id, -1);
@@ -660,22 +746,28 @@
     tile.addEventListener('dragend', () => {
       disarmAll();
       tile.classList.remove('dragging');
-      document.querySelectorAll('.drop-before').forEach((n) => n.classList.remove('drop-before'));
+      disarmAll();
       state.drag = null;
     });
     tile.addEventListener('dragover', (e) => {
       if (!state.drag || state.drag.id === item.id) return;
       e.preventDefault();
-      tile.classList.add('drop-before');
+      const r = tile.getBoundingClientRect();
+      const side = e.clientX < r.left + r.width / 2 ? 'left' : 'right';
+      const armedNow = tile.dataset.armed === '1';
+      tile.classList.toggle('drop-left', !armedNow && side === 'left');
+      tile.classList.toggle('drop-right', !armedNow && side === 'right');
       if (!isFolder) armOnHover(tile);
     });
     tile.addEventListener('dragleave', () => {
-      tile.classList.remove('drop-before');
+      tile.classList.remove('drop-left', 'drop-right');
       disarmTile(tile);
     });
     tile.addEventListener('drop', async (e) => {
       e.preventDefault();
-      tile.classList.remove('drop-before');
+      const r = tile.getBoundingClientRect();
+      const side = e.clientX < r.left + r.width / 2 ? 'left' : 'right';
+      tile.classList.remove('drop-left', 'drop-right');
       const drag = state.drag;
       const armed = tile.dataset.armed === '1';
       disarmTile(tile);
@@ -683,7 +775,7 @@
       if (armed && !isFolder) { await groupTiles(drag.id, item.id, ctx.parentId); return; }
       if (isFolder) { await moveNode(drag.id, item.id, -1); return; }
       const siblings = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
-      const raw = siblings.indexOf(tile);
+      const raw = siblings.indexOf(tile) + (side === 'right' ? 1 : 0);
       await moveNode(drag.id, ctx.parentId, raw < 0 ? -1 : resolveDropIndex(drag, ctx.parentId, raw));
     });
 
@@ -813,10 +905,19 @@
       toast('不能把文件夹移动到它自己或它的子文件夹里');
       return;
     }
+    let old = null;
+    try {
+      const [node] = await chrome.bookmarks.get(id);
+      const sibs = await chrome.bookmarks.getChildren(node.parentId);
+      old = { parentId: node.parentId, index: sibs.findIndex((k) => k.id === id) };
+    } catch (e) { old = null; }
     try {
       let target = typeof index === 'number' ? index : -1;
       if (target < 0) target = await appendIndex(id, parentId);
       await chrome.bookmarks.move(id, { parentId, index: target });
+      if (old) {
+        pushUndo('移动', () => chrome.bookmarks.move(id, { parentId: old.parentId, index: Math.max(old.index, 0) }));
+      }
     } catch (e) {
       toast('移动失败：' + e.message);
     }
@@ -824,7 +925,12 @@
 
   async function removeNode(id) {
     if (!hasAPI) { toast('演示模式不能保存'); return; }
+    let snap = null;
+    try { const [node] = await chrome.bookmarks.getSubTree(id); snap = node; } catch (e) { snap = null; }
     await chrome.bookmarks.removeTree(id).catch(async () => { await chrome.bookmarks.remove(id); });
+    if (snap) {
+      pushUndo('删除「' + (snap.title || '未命名') + '」', () => recreate(snap, snap.parentId, snap.index));
+    }
   }
 
   const reload = debounce(() => reloadNow(), 120);
@@ -952,6 +1058,7 @@
   function blankMenu(x, y) {
     showMenu(x, y, [
       { label: '搜索书签和标签', onClick: openPalette },
+      { label: '撤销上一步', hint: 'Ctrl+Z', onClick: undoLast },
       { sep: true },
       { label: '添加书签', onClick: () => openForm(null, { parentId: defaultParentId() }) },
       { label: '新建文件夹', onClick: addFolder },
@@ -1326,10 +1433,18 @@
       if (editing && editing.item) {
         const patch = { title: name };
         if (editing.item.url) patch.url = finalUrl;
+        const oldTitle = editing.item.title || '';
+        const oldUrl = editing.item.url || '';
         await chrome.bookmarks.update(editing.item.id, patch);
+        pushUndo('修改「' + (oldTitle || '未命名') + '」', () => {
+          const back = { title: oldTitle };
+          if (oldUrl) back.url = oldUrl;
+          return chrome.bookmarks.update(editing.item.id, back);
+        });
       } else {
         const parentId = (editing && editing.ctx && editing.ctx.parentId) || defaultParentId();
-        await chrome.bookmarks.create({ parentId, title: name, url: finalUrl });
+        const created = await chrome.bookmarks.create({ parentId, title: name, url: finalUrl });
+        if (created && created.id) pushUndo('新增「' + name + '」', () => chrome.bookmarks.remove(created.id));
       }
       $('modal').hidden = true;
     } catch (ex) {
@@ -1471,6 +1586,12 @@
       if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'r' && hasAPI) {
         e.preventDefault();
         chrome.runtime.reload();
+        return;
+      }
+      const typing = /^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName || '');
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !typing) {
+        e.preventDefault();
+        undoLast();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
