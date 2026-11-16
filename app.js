@@ -271,6 +271,7 @@
   /* ---------- 自由布局 ---------- */
   const PAD_X = 16;
   const PAD_Y = 10;
+  let syncing = false;
 
   function cellSize() {
     const cs = getComputedStyle(document.documentElement);
@@ -336,22 +337,81 @@
     return (f || el).getBoundingClientRect();
   }
 
-  function overlapTarget(tile, container) {
-    const a = frameRect(tile);
-    const cx = (a.left + a.right) / 2;
-    const cy = (a.top + a.bottom) / 2;
+  function orderedIds(board) {
+    return Object.keys(board).sort((a, b) => {
+      const x = board[a];
+      const y = board[b];
+      return x[1] - y[1] || x[0] - y[0];
+    });
+  }
+
+  function orderedCells(board) {
+    return orderedIds(board).map((id) => board[id]);
+  }
+
+  // 视觉得出的顺序写回浏览器书签顺序
+  async function applyVisualOrder(parentId) {
+    if (!hasAPI) return;
+    const board = state.coords[parentId];
+    if (!board) return;
+    const want = orderedIds(board);
+    if (!want.length) return;
+    let kids = [];
+    try { kids = await chrome.bookmarks.getChildren(parentId); } catch (e) { return; }
+    const current = kids.map((k) => k.id).filter((id) => board[id]);
+    if (current.join() === want.join()) return;
+    syncing = true;
+    try {
+      for (let i = 0; i < want.length; i += 1) {
+        if (current[i] === want[i]) continue;
+        await chrome.bookmarks.move(want[i], { parentId: parentId, index: i });
+        const from = current.indexOf(want[i]);
+        if (from >= 0) current.splice(from, 1);
+        current.splice(i, 0, want[i]);
+      }
+    } catch (e) {
+      toast('顺序同步失败：' + e.message);
+    } finally {
+      syncing = false;
+    }
+  }
+
+  // 书签顺序变化后，把同一批格子按新顺序重新分配（形状不变，内容跟随顺序）
+  function remapCoords(parentId, kids) {
+    const board = state.coords[parentId];
+    if (!board) return false;
+    const cells = orderedCells(board);
+    if (!cells.length) return false;
+    const ids = (kids || []).map((k) => k.id);
+    const next = {};
+    ids.forEach((id, i) => { if (cells[i]) next[id] = cells[i]; });
+    const same = ids.every((id, i) => board[id] && cells[i] && board[id][0] === cells[i][0] && board[id][1] === cells[i][1]);
+    state.coords[parentId] = next;
+    if (!same) saveCoords();
+    return !same;
+  }
+
+  function remapAll() {
+    if (state.layout !== 'free') return;
+    Object.keys(state.coords).forEach((pid) => {
+      const node = findNode(pid, state.roots);
+      if (node) remapCoords(pid, node.children || []);
+    });
+  }
+
+  function hitTest(tile, container, x, y) {
     let best = null;
     let bestDist = Infinity;
     Array.from(container.children).forEach((n) => {
       if (!n.classList.contains('tile') || n === tile) return;
-      const b = frameRect(n);
-      if (cx < b.left || cx > b.right || cy < b.top || cy > b.bottom) return;
-      const dx = cx - (b.left + b.right) / 2;
-      const dy = cy - (b.top + b.bottom) / 2;
-      const d = dx * dx + dy * dy;
+      const r = n.getBoundingClientRect();
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
+      const d = Math.abs(x - (r.left + r.right) / 2);
       if (d < bestDist) { bestDist = d; best = n; }
     });
-    return best;
+    if (!best) return null;
+    const r = best.getBoundingClientRect();
+    return { el: best, side: x < r.left + r.width / 2 ? 'left' : 'right' };
   }
 
   function clearDropTargets() {
@@ -374,13 +434,35 @@
     }
   }
 
-  async function finishDrag(tile, parentId, container, target) {
+  function insertAt(parentId, container, dragId, targetId, side) {
+    const board = boardOf(parentId);
+    const cells = orderedCells(board);
+    const order = orderedIds(board);
+    const from = order.indexOf(dragId);
+    if (from < 0) return;
+    order.splice(from, 1);
+    let to = order.indexOf(targetId);
+    if (to < 0) { applyFreeLayout(container, parentId); return; }
+    if (side === 'right') to += 1;
+    order.splice(to, 0, dragId);
+    const next = {};
+    order.forEach((id, i) => { next[id] = cells[i]; });
+    state.coords[parentId] = next;
+    applyFreeLayout(container, parentId);
+    applyVisualOrder(parentId);
+  }
+
+  async function finishDrag(tile, parentId, container, target, side, targetEl) {
     if (target) {
       if (target.classList.contains('folder')) {
         await moveNode(tile.dataset.id, target.dataset.id, -1);
       } else {
         await groupTiles(tile.dataset.id, target.dataset.id, parentId);
       }
+      return;
+    }
+    if (targetEl && side) {
+      insertAt(parentId, container, tile.dataset.id, targetEl.dataset.id, side);
       return;
     }
     const size = cellSize();
@@ -397,6 +479,7 @@
     if (occupant) board[occupant] = (board[id] || [col, row]).slice();
     board[id] = [col, row];
     applyFreeLayout(container, parentId);
+    applyVisualOrder(parentId);
   }
 
   function enableFreeDrag(tile, parentId, container) {
@@ -412,6 +495,12 @@
       let armed = null;
       let armTimer = 0;
       try { tile.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+
+      const clearHit = () => {
+        document.querySelectorAll('.tile.drop-target, .tile.drop-left, .tile.drop-right').forEach((n) => {
+          n.classList.remove('drop-target', 'drop-left', 'drop-right');
+        });
+      };
 
       const disarm = () => {
         clearTimeout(armTimer);
@@ -429,31 +518,37 @@
         tile.style.left = (ox + dx) + 'px';
         tile.style.top = (oy + dy) + 'px';
 
-        const hit = overlapTarget(tile, container);
-        clearDropTargets();
-        if (hit) hit.classList.add('drop-target');
-        if (hit !== hover) {
-          hover = hit;
+        const hit = hitTest(tile, container, ev.clientX, ev.clientY);
+        clearHit();
+        if (hit) {
+          hit.el.classList.add('drop-target');
+          if (armed === hit.el) hit.el.classList.add('group-arm');
+          else hit.el.classList.add(hit.side === 'left' ? 'drop-left' : 'drop-right');
+        }
+        if ((hit && hit.el) !== hover) {
+          hover = hit && hit.el;
           disarm();
-          if (hit) {
+          if (hover) {
             armTimer = setTimeout(() => {
-              armed = hit;
-              hit.classList.add('group-arm');
+              armed = hover;
+              clearHit();
+              hover.classList.add('drop-target', 'group-arm');
             }, 420);
           }
         }
       };
 
-      const onUp = async () => {
+      const onUp = async (ev) => {
         tile.removeEventListener('pointermove', onMove);
         tile.removeEventListener('pointerup', onUp);
         tile.classList.remove('dragging');
-        clearDropTargets();
-        const target = armed && armed === overlapTarget(tile, container) ? armed : null;
+        const hit = hitTest(tile, container, ev.clientX, ev.clientY);
+        const armedEl = armed && hit && armed === hit.el ? armed : null;
+        clearHit();
         disarm();
         if (!moved) return;
         tile.dataset.dragged = '1';
-        await finishDrag(tile, parentId, container, target);
+        await finishDrag(tile, parentId, container, armedEl, hit ? hit.side : null, armedEl ? null : (hit ? hit.el : null));
       };
 
       tile.addEventListener('pointermove', onMove);
@@ -702,6 +797,7 @@
         $('overlay').hidden = true;
       }
     }
+    if (!syncing) remapAll();
     render();
   }
 
