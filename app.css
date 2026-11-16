@@ -363,6 +363,44 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   height: calc(var(--icon) + 46px);
 }
 
+.tile .check {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  top: 2px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, .92);
+  background: rgba(18, 22, 32, .32);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .28);
+  pointer-events: none;
+}
+
+body.selecting .tile .check { display: block; }
+
+body.selecting .tile.selected .check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+body.selecting .tile.selected .check::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+body.selecting .tile[data-count] .check { display: none; }
+
+body.selecting .tile .name { opacity: .85; }
+
 .tile.touch-ghost {
   position: fixed;
   z-index: 95;

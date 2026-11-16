@@ -138,6 +138,45 @@
     ok('触屏长按拖拽', ghost === 1 && beforeTouch.join(',') !== afterTouch.join(','),
       'ghost=' + ghost + ' ' + beforeTouch.join(',') + ' -> ' + afterTouch.join(','));
 
+    // 撤销：整组拖动一次 Ctrl+Z 要回到原样
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(250);
+    const beforeUndo = order('116');
+    const u1 = tiles();
+    u1[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    u1[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    const dtU = new DataTransfer();
+    const tgtU = u1[u1.length - 1];
+    const cU = center(tgtU);
+    u1[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtU }));
+    tgtU.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtU, clientX: cU.x + cU.w * 0.5, clientY: cU.y }));
+    tgtU.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtU, clientX: cU.x + cU.w * 0.5, clientY: cU.y }));
+    await wait(500);
+    const afterMove = order('116');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    await wait(600);
+    const afterUndo = order('116');
+    ok('整组拖动一次撤销回原样', afterMove.join(',') !== beforeUndo.join(',') && afterUndo.join(',') === beforeUndo.join(','),
+      beforeUndo.join(',') + ' -> ' + afterMove.join(',') + ' -撤销-> ' + afterUndo.join(','));
+
+    // 批量移动：两项都要过去，一次撤销全部回来
+    await wait(250);
+    const pair = tiles().slice(0, 2).map((n) => n.dataset.id);
+    const srcOrder = order('116');
+    const dstOrder = order('2');
+    await window.__bd.moveManyTo(pair, '2');
+    await wait(400);
+    const movedDst = order('2');
+    const leftSrc = order('116');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    await wait(700);
+    const backSrc = order('116');
+    const backDst = order('2');
+    const allMoved = pair.every((id) => movedDst.indexOf(id) >= 0 && leftSrc.indexOf(id) < 0);
+    const allBack = pair.every((id) => backDst.indexOf(id) < 0) && backSrc.join(',') === srcOrder.join(',');
+    ok('批量移动全部生效且可一次撤销', allMoved && allBack,
+      '移动后目标=' + movedDst.join(',') + ' 源=' + leftSrc.join(',') + ' | 撤销后源=' + backSrc.join(',') + ' 期望=' + srcOrder.join(','));
+
     const box = document.createElement('pre');
     box.id = 'result';
     box.textContent = JSON.stringify(results);
@@ -145,7 +184,46 @@
     return results;
     } catch (err) {
       results.push({ name: '用例执行异常', pass: false, detail: String(err && err.stack || err) });
-      const box = document.createElement('pre');
+      // 撤销：整组拖动一次 Ctrl+Z 要回到原样
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(250);
+    const beforeUndo = order('116');
+    const u1 = tiles();
+    u1[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    u1[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    const dtU = new DataTransfer();
+    const tgtU = u1[u1.length - 1];
+    const cU = center(tgtU);
+    u1[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtU }));
+    tgtU.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtU, clientX: cU.x + cU.w * 0.5, clientY: cU.y }));
+    tgtU.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtU, clientX: cU.x + cU.w * 0.5, clientY: cU.y }));
+    await wait(500);
+    const afterMove = order('116');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    await wait(600);
+    const afterUndo = order('116');
+    ok('整组拖动一次撤销回原样', afterMove.join(',') !== beforeUndo.join(',') && afterUndo.join(',') === beforeUndo.join(','),
+      beforeUndo.join(',') + ' -> ' + afterMove.join(',') + ' -撤销-> ' + afterUndo.join(','));
+
+    // 批量移动：两项都要过去，一次撤销全部回来
+    await wait(250);
+    const pair = tiles().slice(0, 2).map((n) => n.dataset.id);
+    const srcOrder = order('116');
+    const dstOrder = order('2');
+    await window.__bd.moveManyTo(pair, '2');
+    await wait(400);
+    const movedDst = order('2');
+    const leftSrc = order('116');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    await wait(700);
+    const backSrc = order('116');
+    const backDst = order('2');
+    const allMoved = pair.every((id) => movedDst.indexOf(id) >= 0 && leftSrc.indexOf(id) < 0);
+    const allBack = pair.every((id) => backDst.indexOf(id) < 0) && backSrc.join(',') === srcOrder.join(',');
+    ok('批量移动全部生效且可一次撤销', allMoved && allBack,
+      '移动后目标=' + movedDst.join(',') + ' 源=' + leftSrc.join(',') + ' | 撤销后源=' + backSrc.join(',') + ' 期望=' + srcOrder.join(','));
+
+    const box = document.createElement('pre');
       box.id = 'result';
       box.textContent = JSON.stringify(results);
       document.body.appendChild(box);

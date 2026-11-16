@@ -46,7 +46,8 @@
     customs: [],
     overlay: [],
     selection: new Set(),
-    selAnchor: null
+    selAnchor: null,
+    selecting: false
   };
 
   /* ---------- 存储 ---------- */
@@ -226,7 +227,7 @@
       btn.addEventListener('click', () => {
         state.activeId = g.id;
         closeFinder();
-        clearSelection();
+        exitSelectMode();
         $('q').value = '';
         render();
       });
@@ -245,9 +246,12 @@
         btn.classList.remove('drop-hint');
         const drag = state.drag;
         if (!drag) return;
+        state.drag = null;
         const target = parentIdOf(g);
         if (drag.id === target) return;
-        await moveNode(drag.id, target, -1);
+        const group = drag.group && drag.group.length > 1 ? drag.group : null;
+        if (group) await moveManyTo(group, target);
+        else await moveNode(drag.id, target, -1);
       });
       box.appendChild(btn);
     });
@@ -628,20 +632,24 @@
   // 落点执行：鼠标拖放与触屏拖拽共用同一套语义
   async function applyDrop(drag, intent, parentId) {
     const group = drag.group && drag.group.length > 1 ? drag.group : null;
-    if (!intent) {
-      if (group) {
-        clearSelection();
-        for (const id of group) await moveNode(id, parentId, -1);
-      } else {
-        await moveNode(drag.id, parentId, -1);
-      }
-      return;
-    }
-    if (intent.side === 'group') {
-      // 覆盖建组只针对被拖的那一项，多选时其余保持不动
+
+    if (intent && intent.side === 'group') {
+      // 覆盖建组只针对被拖的那一项，多选时其余保持不动；建组自带一条撤销
       if (intent.el.classList.contains('folder')) await moveNode(drag.id, intent.el.dataset.id, -1);
       else await groupTiles(drag.id, intent.el.dataset.id, parentId);
       clearSelection();
+      return;
+    }
+
+    // 一次拖动只记一条撤销：整组插入会连着调很多次 placeAt，逐条记会让 Ctrl+Z 要按十几次
+    const snap = await folderSnapshot(parentId);
+    pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
+
+    if (!intent) {
+      const ids = group || [drag.id];
+      clearSelection();
+      for (const id of ids) await placeAt(id, parentId, -1);
+      await reloadNow();
       return;
     }
     if (group) {
@@ -650,6 +658,25 @@
       return;
     }
     await insertBeside(drag.id, parentId, intent.el.dataset.id, intent.side);
+  }
+
+  // 整组移到另一个文件夹，一次撤销可回滚全部
+  async function moveManyTo(ids, parentId) {
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
+    const origins = [];
+    for (const id of ids) {
+      try {
+        const [node] = await chrome.bookmarks.get(id);
+        const sibs = await chrome.bookmarks.getChildren(node.parentId);
+        origins.push({ id: id, parentId: node.parentId, index: sibs.findIndex((k) => k.id === id) });
+      } catch (e) { /* 已被别处删掉，跳过 */ }
+    }
+    if (!origins.length) return;
+    for (const o of origins) await placeAt(o.id, parentId, -1);
+    pushUndo(t('undo.bulkMove', { n: origins.length }), async () => {
+      for (const o of origins) await placeAt(o.id, o.parentId, Math.max(o.index, 0));
+    });
+    await reloadNow();
   }
 
   // 整组插入：多选后拖动，按当前顺序把一组条目放到目标的一侧
@@ -880,6 +907,25 @@
     syncSelection();
   }
 
+  // 选择模式：长按图标进入，图标右上角出现待选圆圈，此时点击是选择而不是打开
+  function enterSelectMode(tile) {
+    if (!state.selecting) {
+      state.selecting = true;
+      document.body.classList.add('selecting');
+    }
+    if (tile) {
+      state.selection.add(tile.dataset.id);
+      state.selAnchor = tile.dataset.id;
+    }
+    syncSelection();
+  }
+
+  function exitSelectMode() {
+    state.selecting = false;
+    document.body.classList.remove('selecting');
+    clearSelection();
+  }
+
   function toggleSelect(tile) {
     const id = tile.dataset.id;
     if (state.selection.has(id)) state.selection.delete(id);
@@ -909,9 +955,8 @@
       .map((g) => ({
         label: g.title,
         onClick: async () => {
-          for (const id of ids) await moveNode(id, parentIdOf(g), -1);
           clearSelection();
-          await reloadNow();
+          await moveManyTo(ids, parentIdOf(g));
         }
       }));
     if (!items.length) { toast(t('toast.noOtherPage')); return; }
@@ -952,6 +997,7 @@
     let sx = 0;
     let sy = 0;
     let dragged = false;
+    let moved = false;
 
     function cleanup() {
       clearTimeout(timer);
@@ -977,6 +1023,8 @@
       timer = setTimeout(() => {
         active = true;
         dragged = true;
+        moved = false;
+        enterSelectMode(tile);
         const n = state.selection.size;
         tile.classList.add('dragging');
         if (n > 1 && state.selection.has(item.id)) tile.dataset.count = t('intro.dragCount', { n });
@@ -1000,6 +1048,7 @@
         return;
       }
       e.preventDefault();
+      if (Math.abs(tp.clientX - sx) + Math.abs(tp.clientY - sy) > 8) moved = true;
       placeGhost(tp.clientX, tp.clientY);
       intent = intentAt(container, { excludeId: item.id, pointer: { x: tp.clientX, y: tp.clientY } });
       paintIntent(intent);
@@ -1007,7 +1056,14 @@
 
     tile.addEventListener('touchend', async () => {
       if (!active) { clearTimeout(timer); return; }
-      const group = state.selection.size > 1 && state.selection.has(item.id) ? Array.from(state.selection) : null;
+      tile.dataset.suppressClick = '1';
+      if (!moved) {
+        // 只是长按，进入选择模式并选中它，不做任何移动
+        cleanup();
+        setTimeout(() => { dragged = false; }, 0);
+        return;
+      }
+      const group = state.selection.size >= 1 && state.selection.has(item.id) ? Array.from(state.selection) : null;
       const drag = { id: item.id, parentId: ctx.parentId, isFolder: !item.url, group: group };
       const hit = intent;
       cleanup();
@@ -1072,12 +1128,53 @@
       n.textContent = String((item.children || []).length);
       label.appendChild(n);
     }
-    tile.append(frame, label);
+    const check = document.createElement('span');
+    check.className = 'check';
+    check.setAttribute('aria-hidden', 'true');
+    tile.append(frame, label, check);
 
     if (isFolder) tile.addEventListener('click', (e) => { e.preventDefault(); openFolder(item); });
 
+    // 长按进入选择模式（触屏走 enableTouchDrag 里的分支）
+    let holdTimer = 0;
+    let holdX = 0;
+    let holdY = 0;
+    const cancelHold = () => {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+    };
+    tile.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.pointerType === 'touch') return;
+      delete tile.dataset.suppressClick;
+      holdX = e.clientX;
+      holdY = e.clientY;
+      cancelHold();
+      holdTimer = setTimeout(() => {
+        holdTimer = 0;
+        tile.dataset.suppressClick = '1';
+        enterSelectMode(tile);
+      }, 480);
+    });
+    tile.addEventListener('pointermove', (e) => {
+      if (!holdTimer) return;
+      if (Math.abs(e.clientX - holdX) + Math.abs(e.clientY - holdY) > 8) cancelHold();
+    });
+    tile.addEventListener('pointerup', cancelHold);
+    tile.addEventListener('pointerleave', cancelHold);
+
     // 多选：Ctrl/Cmd 点击切换，Shift 点击范围选，普通点击清空后照常打开
     tile.addEventListener('click', (e) => {
+      if (tile.dataset.suppressClick === '1') {
+        delete tile.dataset.suppressClick;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (state.selecting) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSelect(tile);
+        return;
+      }
       if (e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -1100,6 +1197,7 @@
 
     tile.addEventListener('dragstart', (e) => {
       if (state.layout === 'free') { e.preventDefault(); return; }
+      delete tile.dataset.suppressClick;
       const group = state.selection.size > 1 && state.selection.has(item.id)
         ? Array.from(state.selection)
         : null;
@@ -2141,7 +2239,7 @@
         else if (!$('finder').hidden) closeFinder();
         else if (!$('modal').hidden) $('modal').hidden = true;
         else if (!$('drawer').hidden) $('drawer').hidden = true;
-        else if (state.selection.size) clearSelection();
+        else if (state.selecting || state.selection.size) exitSelectMode();
         else if (state.overlay.length) closeFolder(state.overlay.length - 1);
       }
     });
@@ -2151,7 +2249,7 @@
 
     $('bulkMove').addEventListener('click', (e) => bulkMoveMenu(e.currentTarget));
     $('bulkDelete').addEventListener('click', bulkDelete);
-    $('bulkClear').addEventListener('click', clearSelection);
+    $('bulkClear').addEventListener('click', exitSelectMode);
 
     $('pq').addEventListener('input', (e) => {
       finder.index = 0;
@@ -2193,8 +2291,8 @@
         if (finder.where === 'inline') finder.where = null;
       }
       // 点空白处退出多选，不然选完没有明显的撤销动作
-      if (state.selection.size && !e.target.closest('.tile, .bulk, .page, .rail, .fab, .top, .menu, .drawer, .modal, .palette, .overlay')) {
-        clearSelection();
+      if (state.selecting && !e.target.closest('.tile, .bulk, .page, .rail, .fab, .top, .menu, .drawer, .modal, .palette, .overlay')) {
+        exitSelectMode();
       }
     });
     document.addEventListener('contextmenu', (e) => {
@@ -2353,7 +2451,7 @@
     setInterval(tick, 20000);
   }
 
-  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, insertManyBeside: insertManyBeside, applyDrop: applyDrop, intentAt: intentAt, state: state };
+  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, insertManyBeside: insertManyBeside, applyDrop: applyDrop, moveManyTo: moveManyTo, intentAt: intentAt, state: state };
 
   // 把能力交给插件内核，再启动插件。
   // 目前 i18n 是第一个插件，其余功能仍在这个文件里，后续可以按同样方式逐个搬出去。
