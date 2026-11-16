@@ -369,14 +369,14 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
 .grid.free .tile.drop-right::after { right: -2px; }
 
 /* 建组提示：整个卡片被框住 */
-.grid.free .tile.group-arm {
+.tile.group-arm {
   outline: 3px solid #3d6cf0;
   outline-offset: 3px;
   border-radius: 16px;
   background: rgba(61, 108, 240, .1);
 }
 
-.grid.free .tile.group-arm .frame {
+.tile.group-arm .frame {
   outline: none;
   box-shadow: 0 0 0 6px rgba(61, 108, 240, .16);
 }

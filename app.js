@@ -399,19 +399,56 @@
     });
   }
 
-  function hitTest(tile, container, x, y) {
+  // 命中判定用被拖图标方块的中心，而不是指针位置：
+  // 用户往往是抓着图标边缘拖的，指针会停在目标图标之外，只看指针会永远判不中
+  function hitTest(tile, container, pointerX) {
+    const a = frameRect(tile);
+    const cx = (a.left + a.right) / 2;
+    const cy = (a.top + a.bottom) / 2;
     let best = null;
     let bestDist = Infinity;
     Array.from(container.children).forEach((n) => {
       if (!n.classList.contains('tile') || n === tile) return;
       const r = n.getBoundingClientRect();
-      if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
-      const d = Math.abs(x - (r.left + r.right) / 2);
+      const inside = cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+      if (!inside) return;
+      const d = Math.abs(cx - (r.left + r.right) / 2) + Math.abs(cy - (r.top + r.bottom) / 2);
       if (d < bestDist) { bestDist = d; best = n; }
     });
     if (!best) return null;
     const r = best.getBoundingClientRect();
-    return { el: best, side: x < r.left + r.width / 2 ? 'left' : 'right' };
+    return { el: best, side: pointerX < r.left + r.width / 2 ? 'left' : 'right' };
+  }
+
+  const armState = { id: null, timer: 0 };
+
+  function armOnHover(tile) {
+    if (armState.id === tile.dataset.id) return;
+    clearTimeout(armState.timer);
+    document.querySelectorAll('.tile.group-arm').forEach((n) => n.classList.remove('group-arm'));
+    armState.id = tile.dataset.id;
+    armState.timer = setTimeout(() => {
+      tile.classList.add('group-arm');
+      tile.dataset.armed = '1';
+    }, 320);
+  }
+
+  function disarmTile(tile) {
+    clearTimeout(armState.timer);
+    armState.id = null;
+    if (tile) {
+      tile.classList.remove('group-arm');
+      delete tile.dataset.armed;
+    }
+  }
+
+  function disarmAll() {
+    clearTimeout(armState.timer);
+    armState.id = null;
+    document.querySelectorAll('.tile.group-arm').forEach((n) => {
+      n.classList.remove('group-arm');
+      delete n.dataset.armed;
+    });
   }
 
   function clearDropTargets() {
@@ -428,6 +465,7 @@
       await chrome.bookmarks.move(aId, { parentId: folder.id, index: 0 });
       await chrome.bookmarks.move(bId, { parentId: folder.id, index: 1 });
       toast('已收进「' + title + '」');
+      setTimeout(() => reloadNow(), 60);
     } catch (e) {
       toast('建组失败：' + e.message);
       render();
@@ -533,7 +571,7 @@
               armed = hover;
               clearHit();
               hover.classList.add('drop-target', 'group-arm');
-            }, 420);
+            }, 320);
           }
         }
       };
@@ -620,6 +658,7 @@
       e.dataTransfer.setData('text/plain', item.id);
     });
     tile.addEventListener('dragend', () => {
+      disarmAll();
       tile.classList.remove('dragging');
       document.querySelectorAll('.drop-before').forEach((n) => n.classList.remove('drop-before'));
       state.drag = null;
@@ -628,13 +667,20 @@
       if (!state.drag || state.drag.id === item.id) return;
       e.preventDefault();
       tile.classList.add('drop-before');
+      if (!isFolder) armOnHover(tile);
     });
-    tile.addEventListener('dragleave', () => tile.classList.remove('drop-before'));
+    tile.addEventListener('dragleave', () => {
+      tile.classList.remove('drop-before');
+      disarmTile(tile);
+    });
     tile.addEventListener('drop', async (e) => {
       e.preventDefault();
       tile.classList.remove('drop-before');
       const drag = state.drag;
+      const armed = tile.dataset.armed === '1';
+      disarmTile(tile);
       if (!drag || drag.id === item.id) return;
+      if (armed && !isFolder) { await groupTiles(drag.id, item.id, ctx.parentId); return; }
       if (isFolder) { await moveNode(drag.id, item.id, -1); return; }
       const siblings = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
       const raw = siblings.indexOf(tile);
