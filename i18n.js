@@ -17,6 +17,11 @@
     'rail.collapse': '收起侧栏',
     'rail.expand': '展开侧栏',
     'rail.addPage': '新建分页',
+    'rail.select': '选择书签',
+    'rail.selectDone': '完成',
+    'rail.selectTitle': '进入选择模式，点图标勾选',
+    'toast.selectNone': '先点几个图标，再批量移动或删除',
+
     'page.rename': '重命名',
     'page.up': '上移',
     'page.down': '下移',
@@ -184,7 +189,7 @@
     'intro.sub': '它直接读写浏览器书签，没有第二份数据，所以不存在两套内容不一致的问题。',
     'intro.p1': '<b>左侧分页</b>就是书签栏的一级文件夹。底部「新建分页」等于新建文件夹，删除分页也会连同里面的书签一起删。',
     'intro.p2': '<b>拖到另一个图标上</b>会新建文件夹把两者收进去；<b>拖到它的左右两侧</b>只是调整顺序，两种情况提示框不一样。',
-    'intro.p3': '<b>Ctrl+K</b> 搜书签和标签，<b>Ctrl+Z</b> 撤销上一步，方向键在网格里移动，<b>Ctrl/Shift 点击</b>可以多选。',
+    'intro.p3': '<b>Ctrl+K</b> 搜书签和标签，<b>Ctrl+Z</b> 撤销上一步，方向键在网格里移动。左侧栏的「选择书签」进入多选，也可以直接 <b>Ctrl/Shift 点击</b>。',
     'intro.ok': '开始使用',
     'intro.dragCount': '{n} 项',
 
@@ -199,6 +204,11 @@
     'rail.collapse': 'Collapse sidebar',
     'rail.expand': 'Expand sidebar',
     'rail.addPage': 'New page',
+    'rail.select': 'Select',
+    'rail.selectDone': 'Done',
+    'rail.selectTitle': 'Start selecting, then click icons',
+    'toast.selectNone': 'Click a few icons first, then move or delete them',
+
     'page.rename': 'Rename',
     'page.up': 'Move up',
     'page.down': 'Move down',
@@ -366,7 +376,7 @@
     'intro.sub': 'It reads and writes your browser bookmarks directly. There is no second copy, so the two can never drift apart.',
     'intro.p1': '<b>The page rail</b> is your bookmark bar: each page is a top-level folder. "New page" creates a folder, and deleting a page deletes its bookmarks too.',
     'intro.p2': '<b>Drop onto another icon</b> creates a folder holding both. <b>Drop to its left or right</b> just reorders. The two gestures show different outlines.',
-    'intro.p3': '<b>Ctrl+K</b> searches bookmarks and tabs, <b>Ctrl+Z</b> undoes, arrow keys move across the grid, <b>Ctrl/Shift click</b> selects multiple.',
+    'intro.p3': '<b>Ctrl+K</b> searches bookmarks and tabs, <b>Ctrl+Z</b> undoes, arrow keys move across the grid. Use "Select" in the rail for multi-select, or <b>Ctrl/Shift click</b> directly.',
     'intro.ok': 'Get started',
     'intro.dragCount': '{n} items',
 

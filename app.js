@@ -1034,6 +1034,7 @@
     const n = state.selection.size;
     box.hidden = n === 0;
     if (n) $('bulkCount').textContent = t('bulk.selected', { n: n });
+    syncSelectBtn();
   }
 
   function clearSelection() {
@@ -1042,7 +1043,7 @@
     syncSelection();
   }
 
-  // 选择模式：长按图标进入，图标右上角出现待选圆圈，此时点击是选择而不是打开
+  // 选择模式：左侧栏的「选择书签」按钮进入（触屏长按也行），图标右上角出现待选圆圈，
   function enterSelectMode(tile) {
     if (!state.selecting) {
       state.selecting = true;
@@ -1053,12 +1054,37 @@
       state.selAnchor = tile.dataset.id;
     }
     syncSelection();
+    syncSelectBtn();
   }
 
   function exitSelectMode() {
     state.selecting = false;
     document.body.classList.remove('selecting');
     clearSelection();
+    syncSelectBtn();
+  }
+
+  // 侧栏的「选择书签」按钮跟着状态走：进入后高亮，文案变「完成」
+  function syncSelectBtn() {
+    const btn = $('selectBtn');
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', String(state.selecting));
+    btn.classList.toggle('on', state.selecting);
+    const label = $('selectLabel') || btn.querySelector('.label');
+    if (label) {
+      const key = state.selecting ? 'rail.selectDone' : 'rail.select';
+      label.dataset.i18n = key;
+      label.textContent = t(key);
+    }
+    const cnt = $('selectCount');
+    if (cnt) cnt.textContent = state.selecting && state.selection.size ? String(state.selection.size) : '';
+  }
+
+  function toggleSelectMode() {
+    if (state.selecting) { exitSelectMode(); return; }
+    enterSelectMode(null);
+    // 刚进入时一个都没选，给一句提示，不然只看到圆圈不知道要干点什么
+    toast(t('toast.selectNone'));
   }
 
   function toggleSelect(tile) {
@@ -1280,32 +1306,8 @@
 
     if (isFolder) tile.addEventListener('click', (e) => { e.preventDefault(); openFolder(item); });
 
-    // 长按进入选择模式（触屏走 enableTouchDrag 里的分支）
-    let holdTimer = 0;
-    let holdX = 0;
-    let holdY = 0;
-    const cancelHold = () => {
-      if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
-    };
-    tile.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || e.pointerType === 'touch') return;
-      delete tile.dataset.suppressClick;
-      holdX = e.clientX;
-      holdY = e.clientY;
-      cancelHold();
-      holdTimer = setTimeout(() => {
-        holdTimer = 0;
-        tile.dataset.suppressClick = '1';
-        enterSelectMode(tile);
-      }, 480);
-    });
-    tile.addEventListener('pointermove', (e) => {
-      if (!holdTimer) return;
-      if (Math.abs(e.clientX - holdX) + Math.abs(e.clientY - holdY) > 8) cancelHold();
-    });
-    tile.addEventListener('pointerup', cancelHold);
-    tile.addEventListener('pointerleave', cancelHold);
-
+    // 选择模式的入口放在左侧栏（触屏仍可长按，那同时是拖拽的起手动作）；
+    // 鼠标长按会和拖拽抢手势，已去掉
     // 多选：Ctrl/Cmd 点击切换，Shift 点击范围选，普通点击清空后照常打开
     tile.addEventListener('click', (e) => {
       if (tile.dataset.suppressClick === '1') {
@@ -2491,6 +2493,7 @@
     $('introOk').addEventListener('click', hideIntro);
     $('intro').addEventListener('click', (e) => { if (e.target === $('intro')) hideIntro(); });
 
+    $('selectBtn').addEventListener('click', toggleSelectMode);
     $('bulkMove').addEventListener('click', (e) => bulkMoveMenu(e.currentTarget));
     $('bulkDelete').addEventListener('click', bulkDelete);
     $('bulkClear').addEventListener('click', exitSelectMode);

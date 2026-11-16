@@ -308,6 +308,18 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   color: var(--text-dim);
 }
 
+/* 选择书签：平时是低调的入口，进入选择模式后整条高亮并变成「完成」 */
+.page.select { color: var(--text-dim); }
+.page.select .av { color: var(--text-dim); }
+.page.select.on {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.page.select.on .av { color: var(--accent-strong); }
+.page.select.on .label { color: var(--accent-strong); }
+
 .rail-toggle {
   flex: 0 0 auto;
   width: 26px;
