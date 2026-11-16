@@ -331,6 +331,37 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   gap: 4px 2px;
 }
 
+.grid.free {
+  display: block;
+  position: relative;
+}
+
+.grid.free .tile {
+  position: absolute;
+  margin: 0;
+  height: calc(var(--icon) + 46px);
+}
+
+.grid.free .tile.dragging {
+  z-index: 10;
+  transition: none;
+  cursor: grabbing;
+}
+
+.grid.free .tile.drop-target .frame {
+  outline: 2px solid rgba(61, 108, 240, .45);
+  outline-offset: 2px;
+}
+
+.grid.free .tile.group-arm .frame {
+  outline: 3px solid #3d6cf0;
+  outline-offset: 3px;
+}
+
+.grid.free .tile.snap-back {
+  transition: left .16s ease, top .16s ease;
+}
+
 .tile {
   width: var(--tile-w);
   position: relative;

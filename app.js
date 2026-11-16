@@ -36,6 +36,8 @@
     drag: null,
     editing: null,
     formMode: 'bookmark',
+    layout: 'grid',
+    coords: {},
     engine: 'google',
     customs: [],
     overlay: []
@@ -266,6 +268,207 @@
     await chrome.bookmarks.create({ parentId: defaultParentId(), title });
   }
 
+  /* ---------- 自由布局 ---------- */
+  const PAD_X = 16;
+  const PAD_Y = 10;
+
+  function cellSize() {
+    const cs = getComputedStyle(document.documentElement);
+    const w = parseFloat(cs.getPropertyValue('--tile-w')) || 96;
+    const icon = parseFloat(cs.getPropertyValue('--icon')) || 64;
+    return { w: w, h: icon + 46, gx: 6, gy: 8 };
+  }
+
+  const saveCoords = debounce(() => store.set('coords', state.coords), 400);
+
+  function boardOf(parentId) {
+    if (!state.coords[parentId]) state.coords[parentId] = {};
+    return state.coords[parentId];
+  }
+
+  function columnsFor(container, size) {
+    const width = container.clientWidth - PAD_X * 2;
+    return Math.max(1, Math.floor((width + size.gx) / (size.w + size.gx)));
+  }
+
+  function applyFreeLayout(container, parentId) {
+    if (state.layout !== 'free') return;
+    const tiles = Array.from(container.children).filter((n) => n.classList.contains('tile'));
+    if (!tiles.length) { container.style.height = ''; return; }
+    const size = cellSize();
+    const cols = columnsFor(container, size);
+    const board = boardOf(parentId);
+    const ids = tiles.map((t) => t.dataset.id);
+
+    Object.keys(board).forEach((id) => { if (ids.indexOf(id) < 0) delete board[id]; });
+
+    const taken = new Set();
+    ids.forEach((id) => {
+      const c = board[id];
+      if (Array.isArray(c) && c.length === 2) taken.add(c[0] + ',' + c[1]);
+      else delete board[id];
+    });
+    let cursor = 0;
+    ids.forEach((id) => {
+      if (board[id]) return;
+      while (taken.has((cursor % cols) + ',' + Math.floor(cursor / cols))) cursor += 1;
+      const col = cursor % cols;
+      const row = Math.floor(cursor / cols);
+      board[id] = [col, row];
+      taken.add(col + ',' + row);
+      cursor += 1;
+    });
+
+    let maxRow = 0;
+    tiles.forEach((t) => {
+      const cell = board[t.dataset.id] || [0, 0];
+      t.style.left = (PAD_X + cell[0] * (size.w + size.gx)) + 'px';
+      t.style.top = (PAD_Y + cell[1] * (size.h + size.gy)) + 'px';
+      if (cell[1] > maxRow) maxRow = cell[1];
+    });
+    container.style.height = (PAD_Y * 2 + (maxRow + 1) * (size.h + size.gy)) + 'px';
+    saveCoords();
+  }
+
+  // 只认图标方块之间的重叠：落在卡片四周的空白不算"压上去"，避免误建组
+  function frameRect(el) {
+    const f = el.querySelector('.frame');
+    return (f || el).getBoundingClientRect();
+  }
+
+  function overlapTarget(tile, container) {
+    const a = frameRect(tile);
+    const cx = (a.left + a.right) / 2;
+    const cy = (a.top + a.bottom) / 2;
+    let best = null;
+    let bestDist = Infinity;
+    Array.from(container.children).forEach((n) => {
+      if (!n.classList.contains('tile') || n === tile) return;
+      const b = frameRect(n);
+      if (cx < b.left || cx > b.right || cy < b.top || cy > b.bottom) return;
+      const dx = cx - (b.left + b.right) / 2;
+      const dy = cy - (b.top + b.bottom) / 2;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; best = n; }
+    });
+    return best;
+  }
+
+  function clearDropTargets() {
+    document.querySelectorAll('.tile.drop-target').forEach((n) => n.classList.remove('drop-target'));
+  }
+
+  async function groupTiles(aId, bId, parentId) {
+    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    const name = prompt('把这两项放进新文件夹，取个名字', '新建文件夹');
+    if (name === null) { render(); return; }
+    const title = name.trim() || '新建文件夹';
+    try {
+      const folder = await chrome.bookmarks.create({ parentId: parentId, title: title });
+      await chrome.bookmarks.move(aId, { parentId: folder.id, index: 0 });
+      await chrome.bookmarks.move(bId, { parentId: folder.id, index: 1 });
+      toast('已收进「' + title + '」');
+    } catch (e) {
+      toast('建组失败：' + e.message);
+      render();
+    }
+  }
+
+  async function finishDrag(tile, parentId, container, target) {
+    if (target) {
+      if (target.classList.contains('folder')) {
+        await moveNode(tile.dataset.id, target.dataset.id, -1);
+      } else {
+        await groupTiles(tile.dataset.id, target.dataset.id, parentId);
+      }
+      return;
+    }
+    const size = cellSize();
+    const board = boardOf(parentId);
+    const cols = columnsFor(container, size);
+    const id = tile.dataset.id;
+    const left = parseFloat(tile.style.left) || PAD_X;
+    const top = parseFloat(tile.style.top) || PAD_Y;
+    let col = Math.round((left - PAD_X) / (size.w + size.gx));
+    let row = Math.round((top - PAD_Y) / (size.h + size.gy));
+    col = Math.min(Math.max(col, 0), cols - 1);
+    row = Math.max(row, 0);
+    const occupant = Object.keys(board).find((k) => k !== id && board[k][0] === col && board[k][1] === row);
+    if (occupant) board[occupant] = (board[id] || [col, row]).slice();
+    board[id] = [col, row];
+    applyFreeLayout(container, parentId);
+  }
+
+  function enableFreeDrag(tile, parentId, container) {
+    tile.draggable = false;
+    tile.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const sx = e.clientX;
+      const sy = e.clientY;
+      const ox = parseFloat(tile.style.left) || 0;
+      const oy = parseFloat(tile.style.top) || 0;
+      let moved = false;
+      let hover = null;
+      let armed = null;
+      let armTimer = 0;
+      try { tile.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+
+      const disarm = () => {
+        clearTimeout(armTimer);
+        armTimer = 0;
+        armed = null;
+        document.querySelectorAll('.tile.group-arm').forEach((n) => n.classList.remove('group-arm'));
+      };
+
+      const onMove = (ev) => {
+        const dx = ev.clientX - sx;
+        const dy = ev.clientY - sy;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 6) return;
+        moved = true;
+        tile.classList.add('dragging');
+        tile.style.left = (ox + dx) + 'px';
+        tile.style.top = (oy + dy) + 'px';
+
+        const hit = overlapTarget(tile, container);
+        clearDropTargets();
+        if (hit) hit.classList.add('drop-target');
+        if (hit !== hover) {
+          hover = hit;
+          disarm();
+          if (hit) {
+            armTimer = setTimeout(() => {
+              armed = hit;
+              hit.classList.add('group-arm');
+            }, 420);
+          }
+        }
+      };
+
+      const onUp = async () => {
+        tile.removeEventListener('pointermove', onMove);
+        tile.removeEventListener('pointerup', onUp);
+        tile.classList.remove('dragging');
+        clearDropTargets();
+        const target = armed && armed === overlapTarget(tile, container) ? armed : null;
+        disarm();
+        if (!moved) return;
+        tile.dataset.dragged = '1';
+        await finishDrag(tile, parentId, container, target);
+      };
+
+      tile.addEventListener('pointermove', onMove);
+      tile.addEventListener('pointerup', onUp);
+    }, true);
+
+    tile.addEventListener('click', (e) => {
+      if (tile.dataset.dragged) {
+        e.preventDefault();
+        e.stopPropagation();
+        delete tile.dataset.dragged;
+      }
+    }, true);
+  }
+
   /* ---------- 图标与文件夹 ---------- */
   function makeTile(item, ctx) {
     const isFolder = !item.url;
@@ -273,7 +476,7 @@
     tile.className = 'tile' + (isFolder ? ' folder' : '');
     tile.dataset.id = item.id;
     tile.dataset.parent = ctx.parentId;
-    tile.draggable = true;
+    tile.draggable = state.layout !== 'free';
     tile.title = isFolder ? item.title : item.url;
 
     if (!isFolder) { tile.href = item.url; tile.rel = 'noopener'; }
@@ -314,6 +517,7 @@
     });
 
     tile.addEventListener('dragstart', (e) => {
+      if (state.layout === 'free') { e.preventDefault(); return; }
       const siblings0 = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
       state.drag = { id: item.id, parentId: ctx.parentId, isFolder, index: siblings0.indexOf(tile) };
       tile.classList.add('dragging');
@@ -348,6 +552,7 @@
   function renderGrid() {
     const grid = $('grid');
     grid.textContent = '';
+    grid.classList.toggle('free', state.layout === 'free');
     grid.ondragover = null;
     grid.ondrop = null;
 
@@ -358,11 +563,19 @@
     }
     const kids = childrenOf(group);
     if (!kids.length) {
+      grid.style.height = '';
       grid.innerHTML = '<p class="empty">这一页还没有书签，点右下角加号新增。</p>';
       return;
     }
     const parentId = parentIdOf(group);
     kids.forEach((k) => grid.appendChild(makeTile(k, { parentId, groupId: group.id })));
+
+    if (state.layout === 'free') {
+      applyFreeLayout(grid, parentId);
+      Array.from(grid.children).forEach((t) => { if (t.classList.contains('tile')) enableFreeDrag(t, parentId, grid); });
+    } else {
+      grid.style.height = '';
+    }
 
     grid.ondragover = (e) => { if (state.drag) e.preventDefault(); };
     grid.ondrop = async (e) => {
@@ -415,7 +628,15 @@
       grid.innerHTML = '<p class="empty">空文件夹。</p>';
       return;
     }
+    grid.classList.toggle('free', state.layout === 'free');
     kids.forEach((k) => grid.appendChild(makeTile(k, { parentId: top.id, groupId: state.activeId })));
+
+    if (state.layout === 'free') {
+      applyFreeLayout(grid, top.id);
+      Array.from(grid.children).forEach((t) => { if (t.classList.contains('tile')) enableFreeDrag(t, top.id, grid); });
+    } else {
+      grid.style.height = '';
+    }
 
     grid.ondragover = (e) => { if (state.drag) e.preventDefault(); };
     grid.ondrop = async (e) => {
@@ -578,6 +799,14 @@
     ]);
   }
 
+  function resetLayout() {
+    const id = defaultParentId();
+    state.coords[id] = {};
+    saveCoords();
+    render();
+    toast('已按顺序重排');
+  }
+
   function blankMenu(x, y) {
     showMenu(x, y, [
       { label: '搜索书签和标签', onClick: openPalette },
@@ -587,7 +816,7 @@
       { label: '新建分页', onClick: addPage },
       { sep: true },
       { label: '更换壁纸', onClick: () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; } }
-    ]);
+    ].concat(state.layout === 'free' ? [{ sep: true }, { label: '整理布局', onClick: resetLayout }] : []));
   }
 
   function deleteItem(item) {
@@ -1052,6 +1281,10 @@
   }
 
   let toastTimer;
+  function paintSeg(id, attr, value) {
+    Array.from($(id).children).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset[attr] === value)));
+  }
+
   function toast(msg) {
     const el = $('toast');
     if (!el) { window.alert(msg); return; }
@@ -1181,6 +1414,16 @@
       render();
     });
 
+    $('layoutSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-layout]');
+      if (!b) return;
+      state.layout = b.dataset.layout;
+      store.set('layout', state.layout);
+      paintSeg('layoutSeg', 'layout', state.layout);
+      closeFolder(0);
+      render();
+    });
+
     $('sizeSeg').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-size]');
       if (!b) return;
@@ -1208,7 +1451,9 @@
       store.get('showEmpty', true),
       store.get('railCollapsed', false),
       store.get('engine', 'google'),
-      store.get('customs', [])
+      store.get('customs', []),
+      store.get('layout', 'grid'),
+      store.get('coords', {})
     ]);
     state.wall = prefs[0] || 'a';
     state.image = prefs[1] || null;
@@ -1218,6 +1463,8 @@
     state.railCollapsed = prefs[5] === true;
     state.engine = prefs[6] || 'google';
     state.customs = Array.isArray(prefs[7]) ? prefs[7] : [];
+    state.layout = prefs[8] === 'free' ? 'free' : 'grid';
+    state.coords = prefs[9] && typeof prefs[9] === 'object' ? prefs[9] : {};
     $('showEmpty').checked = state.showEmpty;
 
     await loadTree();
@@ -1230,6 +1477,7 @@
     }
     if (params.get('palette')) openPalette();
     if (params.get('engine')) setEngine(params.get('engine'));
+    if (params.get('layout') === 'free') { state.layout = 'free'; paintSeg('layoutSeg', 'layout', 'free'); }
     const openIds = (params.get('open') || '').split(',').filter(Boolean);
     if (openIds.length) {
       const path = openIds.map((id) => findNode(id, state.roots));
@@ -1244,6 +1492,7 @@
     renderSwatches();
     renderRootSeg();
     renderEngine();
+    paintSeg('layoutSeg', 'layout', state.layout);
     render();
     wire();
     Array.from($('sizeSeg').children).forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.size === state.size)));
