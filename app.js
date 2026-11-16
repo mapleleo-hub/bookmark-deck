@@ -109,6 +109,21 @@
 
   function currentGroup() { return state.groups.find((g) => g.id === state.activeId) || null; }
 
+  function findPath(id, nodes, acc) {
+    const path = acc || [];
+    for (const n of nodes || []) {
+      if (n.id === id) return path.concat(n.id);
+      const hit = findPath(id, n.children, path.concat(n.id));
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  function isInside(ancestorId, nodeId) {
+    const path = findPath(nodeId, state.roots);
+    return !!(path && path.includes(ancestorId));
+  }
+
   function findNode(id, nodes) {
     for (const n of nodes || []) {
       if (n.id === id) return n;
@@ -299,7 +314,8 @@
     });
 
     tile.addEventListener('dragstart', (e) => {
-      state.drag = { id: item.id, parentId: ctx.parentId, isFolder };
+      const siblings0 = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
+      state.drag = { id: item.id, parentId: ctx.parentId, isFolder, index: siblings0.indexOf(tile) };
       tile.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', item.id);
@@ -322,8 +338,8 @@
       if (!drag || drag.id === item.id) return;
       if (isFolder) { await moveNode(drag.id, item.id, -1); return; }
       const siblings = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
-      const idx = siblings.indexOf(tile);
-      await moveNode(drag.id, ctx.parentId, idx < 0 ? -1 : idx);
+      const raw = siblings.indexOf(tile);
+      await moveNode(drag.id, ctx.parentId, raw < 0 ? -1 : resolveDropIndex(drag, ctx.parentId, raw));
     });
 
     return tile;
@@ -439,10 +455,35 @@
   }
 
   /* ---------- 写操作 ---------- */
+  function resolveDropIndex(drag, parentId, targetIdx) {
+    let idx = targetIdx;
+    if (drag.parentId === parentId && typeof drag.index === 'number' && drag.index < targetIdx) idx -= 1;
+    return Math.max(idx, 0);
+  }
+
+  // Chrome 的 bookmarks.move 不接受负 index，追加要显式算成目标子项数
+  async function appendIndex(id, parentId) {
+    let kids = [];
+    if (chrome.bookmarks.getChildren) {
+      kids = await chrome.bookmarks.getChildren(parentId);
+    } else {
+      const [dest] = await chrome.bookmarks.getSubTree(parentId);
+      kids = (dest && dest.children) || [];
+    }
+    const same = kids.some((k) => k.id === id);
+    return same ? Math.max(kids.length - 1, 0) : kids.length;
+  }
+
   async function moveNode(id, parentId, index) {
     if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (id === parentId || isInside(id, parentId)) {
+      toast('不能把文件夹移动到它自己或它的子文件夹里');
+      return;
+    }
     try {
-      await chrome.bookmarks.move(id, { parentId, index });
+      let target = typeof index === 'number' ? index : -1;
+      if (target < 0) target = await appendIndex(id, parentId);
+      await chrome.bookmarks.move(id, { parentId, index: target });
     } catch (e) {
       toast('移动失败：' + e.message);
     }
@@ -794,5 +835,6 @@
     setInterval(tick, 20000);
   }
 
+  window.__bd = { moveNode: moveNode, appendIndex: appendIndex, resolveDropIndex: resolveDropIndex, state: state };
   boot();
 })();

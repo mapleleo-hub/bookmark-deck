@@ -18,6 +18,9 @@
 - 可选：图标包（manifest `icons`）、搜索结果按分组聚合展示、书签根为"移动设备书签"时的图标回退。
 
 ## 已知坑
+- `chrome.bookmarks.move` 的 `index` 不接受 -1（会报 `Value must be at least 0`）。追加必须显式算成目标子项数，用 `getChildren` 取（`get` 不保证带 children）。同父内向前拖还要再减 1，否则落点偏移一位。已封装为 `appendIndex` 与 `resolveDropIndex`。
+- 文件夹拖进自己的子孙会形成环，`move` 前先查路径拦截（`isInside`）。
+- 桩测试里 `window.alert` 会阻塞 headless 渲染，测之前必须覆盖掉。
 - `.tabs` 用 `display:flex` + `overflow-x:auto` 时，默认 `align-items:stretch` 会把标签按钮拉到容器高度（实测 102px），必须显式 `align-items:center`。
 - `.modal/.drawer/.overlay` 用了 `display:grid`，会覆盖 `[hidden]` 的默认样式，CSS 里必须补 `[hidden]{display:none!important}`，否则首屏就弹出两个面板。
 - `body` 有背景色时会在自身盒子范围内盖住 `position:fixed; z-index:-1` 的壁纸层，产生横向接缝；改成 `body{background:transparent}` 才能铺满视口。
