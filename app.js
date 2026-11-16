@@ -2192,6 +2192,10 @@
         $('finder').hidden = true;
         if (finder.where === 'inline') finder.where = null;
       }
+      // 点空白处退出多选，不然选完没有明显的撤销动作
+      if (state.selection.size && !e.target.closest('.tile, .bulk, .page, .rail, .fab, .top, .menu, .drawer, .modal, .palette, .overlay')) {
+        clearSelection();
+      }
     });
     document.addEventListener('contextmenu', (e) => {
       if (e.target.closest('.tile, .page, .menu, .drawer, .modal, .fab, .top, .sheet-head')) return;
