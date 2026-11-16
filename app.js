@@ -662,6 +662,11 @@
       if (e.key === 'Escape') { e.target.value = ''; state.query = ''; renderGrid(); }
     });
     document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'r' && hasAPI) {
+        e.preventDefault();
+        chrome.runtime.reload();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         $('q').focus();
@@ -676,6 +681,10 @@
     });
 
     $('addPage').addEventListener('click', addPage);
+    if (hasAPI) {
+      $('devBlock').hidden = false;
+      $('reloadExt').addEventListener('click', () => chrome.runtime.reload());
+    }
     $('railToggle').addEventListener('click', () => {
       state.railCollapsed = !state.railCollapsed;
       store.set('railCollapsed', state.railCollapsed);

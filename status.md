@@ -10,6 +10,8 @@
 - 验证方式：用与真实 Chrome 书签同构的数据（本机 185 条快照）在 headless Chrome 里渲染，走了演示与 API 两条代码路径，截图确认布局。
 - 未验证：以"加载已解压扩展"方式在真实 Chrome 中打开 `chrome://newtab`（headless 下扩展页未成功加载，`ERR_BLOCKED_BY_CLIENT`），需要用户装一次确认。
 
+- 开发便利：抽屉里加「重载扩展」按钮，`Ctrl+Alt+R` 触发 `chrome.runtime.reload()`，省去回扩展页点刷新。
+
 ## 下一步
 - 分页栏拖拽排序（目前只能右键上移下移）。
 - 用户装上后若有渲染或权限问题，按控制台报错修。
