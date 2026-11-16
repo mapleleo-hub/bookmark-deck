@@ -87,8 +87,18 @@
 
 <aside class="drawer" id="drawer" hidden>
   <div class="sheet-head">
-    <h3>外观</h3>
+    <h3>设置</h3>
     <button class="icon-btn" id="closeDrawer" title="关闭">×</button>
+  </div>
+  <div class="field">
+    <span class="label">主题</span>
+    <div class="seg" id="themeSeg">
+      <button data-theme="auto">跟随壁纸</button><button data-theme="light">浅色</button><button data-theme="dark">深色</button>
+    </div>
+  </div>
+  <div class="field">
+    <span class="label">主题色</span>
+    <div class="accents" id="accentRow"></div>
   </div>
   <div class="field">
     <span class="label">壁纸</span>
@@ -136,8 +146,8 @@
   <button class="icon-btn big" id="addBtn" title="添加书签">
     <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
   </button>
-  <button class="icon-btn big" id="gearBtn" title="外观">
-    <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5 7.2 7.2M16.8 16.8l1.7 1.7M18.5 5.5 16.8 7.2M7.2 16.8 5.5 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  <button class="icon-btn big" id="gearBtn" title="设置">
+    <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.65 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5z"/></svg>
   </button>
 </div>
 

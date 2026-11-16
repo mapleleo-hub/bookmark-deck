@@ -38,6 +38,9 @@
     formMode: 'bookmark',
     layout: 'grid',
     coords: {},
+    theme: 'auto',
+    accent: '#3d6cf0',
+    history: [],
     engine: 'google',
     customs: [],
     overlay: []
@@ -1171,6 +1174,7 @@
   function runEngineSearch() {
     const q = $('q').value.trim();
     if (!q) return;
+    recordSearch(q);
     const src = currentSource();
     if (!src.url) return;
     location.href = src.url.replace('%s', encodeURIComponent(q));
@@ -1218,7 +1222,30 @@
     const key = query.trim().toLowerCase();
     const tabs = finder.tabs.filter((t) => match(t, key));
     const books = key ? bookmarkIndex().filter((b) => match(b, key)) : [];
-    return tabs.concat(books);
+    const hist = key ? [] : state.history.map((h) => ({
+      type: 'history', id: 'h:' + h.ts, title: h.q, q: h.q, engine: h.engine, url: ''
+    }));
+    return hist.concat(tabs, books);
+  }
+
+  function recordSearch(text) {
+    const q = (text || '').trim();
+    if (!q) return;
+    state.history = [{ q: q, engine: state.engine, ts: Date.now() }]
+      .concat(state.history.filter((h) => !(h.q === q && h.engine === state.engine)))
+      .slice(0, 20);
+    store.set('history', state.history);
+  }
+
+  function engineName(id) {
+    const hit = allSources().find((s) => s.id === id);
+    return hit ? hit.name : '搜索';
+  }
+
+  function clearHistory() {
+    state.history = [];
+    store.set('history', []);
+    refreshFinder(finder.where === 'palette' ? $('pq').value : $('q').value);
   }
 
   async function refreshFinder(query) {
@@ -1239,15 +1266,27 @@
     if (!host) return;
     host.textContent = '';
 
+    const hist = finder.items.filter((i) => i.type === 'history');
     const tabs = finder.items.filter((i) => i.type === 'tab');
     const books = finder.items.filter((i) => i.type === 'book');
     let i = 0;
 
-    const group = (label, list) => {
+    const group = (label, list, withClear) => {
       if (!list.length) return;
       const head = document.createElement('div');
       head.className = 'fgroup';
-      head.textContent = label + ' · ' + list.length;
+      const txt = document.createElement('span');
+      txt.textContent = label + ' · ' + list.length;
+      head.appendChild(txt);
+      if (withClear) {
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'fclear';
+        clear.textContent = '清空';
+        clear.addEventListener('mousedown', (e) => e.preventDefault());
+        clear.addEventListener('click', (e) => { e.stopPropagation(); clearHistory(); });
+        head.appendChild(clear);
+      }
       host.appendChild(head);
       list.forEach((item) => {
         host.appendChild(finderRow(item, i));
@@ -1272,8 +1311,9 @@
       p.textContent = '没有匹配的标签或书签';
       host.appendChild(p);
     } else {
-      group('标签', tabs);
-      group('书签', books);
+      group('最近搜索', hist, true);
+      group('标签', tabs, false);
+      group('书签', books, false);
     }
 
     const count = finder.where === 'palette' ? $('pcount') : $('fcount');
@@ -1285,7 +1325,17 @@
     row.className = 'prow' + (index === finder.index ? ' on' : '');
     const icon = document.createElement('span');
     icon.className = 'picon';
-    icon.appendChild(makeIcon(item.url, item.title, 32));
+    if (item.type === 'history') {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '14');
+      svg.setAttribute('height', '14');
+      svg.innerHTML = '<circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>';
+      icon.style.color = 'var(--text-dim)';
+      icon.appendChild(svg);
+    } else {
+      icon.appendChild(makeIcon(item.url, item.title, 32));
+    }
     const main = document.createElement('span');
     main.className = 'pmain';
     const title = document.createElement('span');
@@ -1293,9 +1343,9 @@
     title.textContent = item.title;
     const sub = document.createElement('span');
     sub.className = 'purl';
-    sub.textContent = item.type === 'tab'
-      ? hostOf(item.url) + (item.active ? ' · 当前标签' : '')
-      : item.path || hostOf(item.url);
+    if (item.type === 'history') sub.textContent = '用 ' + engineName(item.engine) + ' 搜索';
+    else if (item.type === 'tab') sub.textContent = hostOf(item.url) + (item.active ? ' · 当前标签' : '');
+    else sub.textContent = item.path || hostOf(item.url);
     main.append(title, sub);
     row.append(icon, main);
     row.addEventListener('mousedown', (e) => e.preventDefault());
@@ -1313,6 +1363,15 @@
   }
 
   function activateItem(item) {
+    if (item.type === 'history') {
+      closeFinder();
+      $('q').value = item.q;
+      if (item.engine && item.engine !== state.engine) setEngine(item.engine);
+      if (state.engine === 'local') openInlineFinder();
+      else runEngineSearch();
+      return;
+    }
+    if (state.engine === 'local') recordSearch($('q').value);
     closeFinder();
     if (item.type === 'tab') {
       if (!hasAPI || item.demo) { toast('演示模式不能切换标签页'); return; }
@@ -1460,16 +1519,35 @@
   }
 
   /* ---------- 外观 ---------- */
+  function applyAccent() {
+    const hex = /^#[0-9a-f]{6}$/i.test(state.accent || '') ? state.accent : '#3d6cf0';
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const st = document.documentElement.style;
+    st.setProperty('--accent', hex);
+    st.setProperty('--accent-strong', 'rgb(' + [r, g, b].map((v) => Math.round(v * 0.88)).join(',') + ')');
+    st.setProperty('--accent-soft', 'rgba(' + [r, g, b].join(',') + ',0.14)');
+  }
+
+  function applyTheme() {
+    if (state.theme === 'light' || state.theme === 'dark') {
+      document.documentElement.dataset.theme = state.theme;
+      return;
+    }
+    if (state.image) detectTheme(state.image);
+    else document.documentElement.dataset.theme = (WALLS[state.wall] || WALLS.a).theme;
+  }
+
   function applyWall() {
     const wall = $('wall');
     if (state.image) {
       wall.style.backgroundImage = 'url("' + state.image + '")';
-      detectTheme(state.image);
     } else {
-      const w = WALLS[state.wall] || WALLS.a;
-      wall.style.backgroundImage = w.css;
-      document.documentElement.dataset.theme = w.theme;
+      wall.style.backgroundImage = (WALLS[state.wall] || WALLS.a).css;
     }
+    applyTheme();
+    applyAccent();
     document.documentElement.dataset.size = state.size;
     $('rail').classList.toggle('collapsed', state.railCollapsed);
     $('railToggle').textContent = state.railCollapsed ? '›' : '‹';
@@ -1515,6 +1593,38 @@
       });
       box.appendChild(b);
     });
+  }
+
+  const ACCENTS = ['#3d6cf0', '#e0592a', '#1f8a70', '#9b5de5', '#d64545', '#c08a1e'];
+
+  function renderAccents() {
+    const box = $('accentRow');
+    box.textContent = '';
+    ACCENTS.forEach((hex) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.style.background = hex;
+      b.title = hex;
+      b.setAttribute('aria-pressed', String(state.accent.toLowerCase() === hex.toLowerCase()));
+      b.addEventListener('click', () => {
+        state.accent = hex;
+        store.set('accent', hex);
+        applyAccent();
+        renderAccents();
+      });
+      box.appendChild(b);
+    });
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = /^#[0-9a-f]{6}$/i.test(state.accent) ? state.accent : '#3d6cf0';
+    picker.title = '自定义';
+    picker.addEventListener('input', (e) => {
+      state.accent = e.target.value;
+      store.set('accent', state.accent);
+      applyAccent();
+      Array.from($('accentRow').querySelectorAll('button')).forEach((n) => n.setAttribute('aria-pressed', 'false'));
+    });
+    box.appendChild(picker);
   }
 
   function renderRootSeg() {
@@ -1630,7 +1740,12 @@
 
     $('addBtn').addEventListener('click', () => openForm(null, { parentId: defaultParentId() }));
     $('addFolderBtn').addEventListener('click', addFolder);
-    $('gearBtn').addEventListener('click', () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; });
+    $('gearBtn').addEventListener('click', () => {
+      renderSwatches();
+      renderAccents();
+      renderRootSeg();
+      $('drawer').hidden = false;
+    });
     $('closeDrawer').addEventListener('click', () => { $('drawer').hidden = true; });
     $('closeOverlay').addEventListener('click', () => closeFolder(0));
     $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeFolder(0); });
@@ -1677,6 +1792,15 @@
       render();
     });
 
+    $('themeSeg').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-theme]');
+      if (!b) return;
+      state.theme = b.dataset.theme;
+      store.set('theme', state.theme);
+      paintSeg('themeSeg', 'theme', state.theme);
+      applyTheme();
+    });
+
     $('layoutSeg').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-layout]');
       if (!b) return;
@@ -1716,7 +1840,10 @@
       store.get('engine', 'google'),
       store.get('customs', []),
       store.get('layout', 'grid'),
-      store.get('coords', {})
+      store.get('coords', {}),
+      store.get('theme', 'auto'),
+      store.get('accent', '#3d6cf0'),
+      store.get('history', [])
     ]);
     state.wall = prefs[0] || 'a';
     state.image = prefs[1] || null;
@@ -1728,6 +1855,9 @@
     state.customs = Array.isArray(prefs[7]) ? prefs[7] : [];
     state.layout = prefs[8] === 'free' ? 'free' : 'grid';
     state.coords = prefs[9] && typeof prefs[9] === 'object' ? prefs[9] : {};
+    state.theme = ['light', 'dark', 'auto'].indexOf(prefs[10]) >= 0 ? prefs[10] : 'auto';
+    state.accent = /^#[0-9a-f]{6}$/i.test(prefs[11] || '') ? prefs[11] : '#3d6cf0';
+    state.history = Array.isArray(prefs[12]) ? prefs[12] : [];
     $('showEmpty').checked = state.showEmpty;
 
     await loadTree();
@@ -1741,6 +1871,20 @@
     if (params.get('palette')) openPalette();
     if (params.get('engine')) setEngine(params.get('engine'));
     if (params.get('layout') === 'free') { state.layout = 'free'; paintSeg('layoutSeg', 'layout', 'free'); }
+    if (['light', 'dark', 'auto'].indexOf(params.get('theme')) >= 0) {
+      state.theme = params.get('theme');
+      paintSeg('themeSeg', 'theme', state.theme);
+    }
+    if (/^#[0-9a-f]{6}$/i.test(params.get('accent') || '')) {
+      state.accent = params.get('accent');
+      applyAccent();
+    }
+    if (params.get('settings')) {
+      renderSwatches();
+      renderAccents();
+      renderRootSeg();
+      $('drawer').hidden = false;
+    }
     const openIds = (params.get('open') || '').split(',').filter(Boolean);
     if (openIds.length) {
       const path = openIds.map((id) => findNode(id, state.roots));
@@ -1756,6 +1900,7 @@
     renderRootSeg();
     renderEngine();
     paintSeg('layoutSeg', 'layout', state.layout);
+    paintSeg('themeSeg', 'theme', state.theme);
     render();
     wire();
     Array.from($('sizeSeg').children).forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.size === state.size)));
