@@ -631,6 +631,11 @@
 
   function clearIntent() { paintIntent(null); }
 
+  // 拖动过程中给 body 打标记，面包屑上那些能接住的级才显出虚线框
+  function markDragging(on) {
+    document.body.classList.toggle('dragging', !!on);
+  }
+
   // 把一组条目和目标一起收进新建文件夹。ids 是被拖的项（可能多项），targetId 是覆盖到的那个
   async function groupItems(ids, targetId, parentId) {
     if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
@@ -749,6 +754,38 @@
     await reloadNow();
   }
 
+  // 把一组条目移进 parentId，并依次排在 afterId 后面（从文件夹里拖到面包屑上用）
+  async function moveManyAfter(ids, parentId, afterId) {
+    if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
+    const origins = [];
+    for (const id of ids) {
+      try {
+        const [node] = await chrome.bookmarks.get(id);
+        const sibs = await chrome.bookmarks.getChildren(node.parentId);
+        origins.push({ id: id, parentId: node.parentId, index: sibs.findIndex((k) => k.id === id) });
+      } catch (e) { /* 已被别处删掉，跳过 */ }
+    }
+    if (!origins.length) return;
+    if (origins.some((o) => o.id === parentId || isInside(o.id, parentId))) {
+      toast(t('folder.cannotNest'));
+      return;
+    }
+    // 每次都以「上一个放好的项」为锚点，保证整组落进去之后顺序跟拖出来时一致
+    let anchor = afterId;
+    let moved = 0;
+    for (const o of origins) {
+      let at = -1;
+      try { at = (await chrome.bookmarks.getChildren(parentId)).findIndex((k) => k.id === anchor); } catch (e) { at = -1; }
+      try {
+        await placeAt(o.id, parentId, at < 0 ? -1 : at + 1);
+        moved += 1;
+        anchor = o.id;
+      } catch (e) { /* 单项失败不中断整组 */ }
+    }
+    if (!moved) { render(); return; }
+    pushUndo(t('undo.moveOut', { n: moved }), () => restoreOrigins(origins));
+    await reloadNow();
+  }
   // 整组插入：多选后拖动，按当前顺序把一组条目放到目标的一侧
   async function insertManyBeside(ids, parentId, targetId, side) {
     if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
@@ -840,6 +877,7 @@
         const dy = ev.clientY - sy;
         if (!moved && Math.abs(dx) + Math.abs(dy) < 6) return;
         moved = true;
+        markDragging(true);
         tile.classList.add('dragging');
         tile.style.left = (ox + dx) + 'px';
         tile.style.top = (oy + dy) + 'px';
@@ -847,13 +885,22 @@
         paintIntent(intent);
       };
 
-      const onUp = async () => {
+      const onUp = async (ev) => {
         tile.removeEventListener('pointermove', onMove);
         tile.removeEventListener('pointerup', onUp);
         tile.classList.remove('dragging');
+        markDragging(false);
         clearIntent();
         if (!moved) return;
         tile.dataset.dragged = '1';
+        const out = ev ? crumbTargetAt(ev.clientX, ev.clientY) : null;
+        if (out) {
+          // 自由布局下也要能拖出去，落点在面包屑上时按「移出到上层」处理
+          if (state.coords[parentId]) delete state.coords[parentId][tile.dataset.id];
+          saveCoords();
+          await moveOutFrom({ id: tile.dataset.id }, out.parentId, out.anchorId);
+          return;
+        }
         await finishDrag(tile, parentId, container, intent);
       };
 
@@ -1115,6 +1162,7 @@
         enterSelectMode(tile);
         const n = state.selection.size;
         tile.classList.add('dragging');
+        markDragging(true);
         if (n > 1 && state.selection.has(item.id)) tile.dataset.count = t('intro.dragCount', { n });
         ghost = tile.cloneNode(true);
         ghost.classList.add('touch-ghost');
@@ -1142,24 +1190,33 @@
       paintIntent(intent);
     }, { passive: false });
 
-    tile.addEventListener('touchend', async () => {
+    tile.addEventListener('touchend', async (e) => {
       if (!active) { clearTimeout(timer); return; }
       tile.dataset.suppressClick = '1';
       if (!moved) {
         // 只是长按，进入选择模式并选中它，不做任何移动
         cleanup();
+        markDragging(false);
         setTimeout(() => { dragged = false; }, 0);
         return;
       }
       const group = state.selection.size >= 1 && state.selection.has(item.id) ? Array.from(state.selection) : null;
       const drag = { id: item.id, parentId: ctx.parentId, isFolder: !item.url, group: group };
+      const tp = e.changedTouches && e.changedTouches[0];
+      const out = tp ? crumbTargetAt(tp.clientX, tp.clientY) : null;
       const hit = intent;
       cleanup();
+      markDragging(false);
+      if (out) {
+        await moveOutFrom(drag, out.parentId, out.anchorId);
+        setTimeout(() => { dragged = false; }, 0);
+        return;
+      }
       await applyDrop(drag, hit, ctx.parentId);
       setTimeout(() => { dragged = false; }, 0);
     });
 
-    tile.addEventListener('touchcancel', () => cleanup());
+    tile.addEventListener('touchcancel', () => { markDragging(false); cleanup(); });
 
     tile.addEventListener('click', (e) => {
       if (!dragged) return;
@@ -1291,12 +1348,14 @@
         : null;
       state.drag = { id: item.id, parentId: ctx.parentId, isFolder, group };
       tile.classList.add('dragging');
+      markDragging(true);
       if (group) tile.dataset.count = t('intro.dragCount', { n: group.length });
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', item.id);
     });
     tile.addEventListener('dragend', () => {
       clearIntent();
+      markDragging(false);
       tile.classList.remove('dragging');
       delete tile.dataset.count;
       state.drag = null;
@@ -1391,10 +1450,55 @@
     else renderOverlay();
   }
 
+  // 拖到面包屑上：把条目移回那一层，落在「路径里的下一个文件夹」后面，
+  // 退回上层时它就摆在刚才那个文件夹旁边，不至于跑到列表末尾
+  async function moveOutFrom(drag, parentId, anchorId) {
+    if (!drag || !parentId) return;
+    const ids = state.selection.has(drag.id) && state.selection.size > 1 ? Array.from(state.selection) : [drag.id];
+    clearIntent();
+    clearSelection();
+    await moveManyAfter(ids, parentId, anchorId || '');
+  }
+
+  async function dropOnCrumb(el, dragArg) {
+    if (!el || !el.dataset || !el.dataset.crumbId) return;
+    await moveOutFrom(dragArg || state.drag, el.dataset.crumbId, el.dataset.crumbAnchor);
+  }
+
+  // 「移出一层」的落点：进来的是当前文件夹，出去的是它的上级
+  function oneLevelOut() {
+    const n = state.overlay.length;
+    const cur = state.overlay[n - 1];
+    const upId = n > 1 ? state.overlay[n - 2].id : state.activeId;
+    if (!cur || !upId) return null;
+    return { parentId: upId, anchorId: cur.id };
+  }
+
+  // 指针与触屏拖拽没有原生 drop 事件，放手时用命中测试找落点：
+  // 先认具体某个上级面包屑，落在面包屑这一条的空白处就算移出一层
+  function crumbTargetAt(x, y) {
+    if ($('overlay').hidden) return null;
+    const bar = $('crumbs');
+    const inRect = (r) => r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    for (const b of bar.querySelectorAll('button[data-crumb-id]')) {
+      if (inRect(b.getBoundingClientRect())) {
+        return { parentId: b.dataset.crumbId, anchorId: b.dataset.crumbAnchor || '' };
+      }
+    }
+    return inRect(bar.getBoundingClientRect()) ? oneLevelOut() : null;
+  }
+
   function renderOverlay() {
     const crumbs = $('crumbs');
-    crumbs.textContent = '';
+    // 面包屑第一段是当前分页，后面才是文件夹。没有这一段，最外层的文件夹里的图标
+    // 就没有「移出到本页」的落点，只能进不能出
+    const page = currentGroup();
+    const trail = [{ id: state.activeId, title: (page && page.title) || t('item.untitled'), depth: 0 }];
     state.overlay.forEach((node, i) => {
+      trail.push({ id: node.id, title: node.title || t('item.untitled'), depth: i + 1 });
+    });
+    crumbs.textContent = '';
+    trail.forEach((c, i) => {
       if (i) {
         const sep = document.createElement('span');
         sep.className = 'sep';
@@ -1403,10 +1507,49 @@
       }
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = node.title || t('item.untitled');
-      b.addEventListener('click', () => closeFolder(i + 1));
+      b.textContent = c.title;
+      b.addEventListener('click', () => closeFolder(c.depth));
+      // 只有上级能接住拖出来的图标；最后一段是正在看的那一层，放进去没有意义
+      if (i < trail.length - 1 && c.id) {
+        b.dataset.crumbId = c.id;
+        b.dataset.crumbAnchor = trail[i + 1].id || '';
+        b.classList.add('crumb-drop');
+        b.title = t('crumbs.dropOut', { title: c.title });
+        b.addEventListener('dragover', (e) => {
+          if (!state.drag) return;
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+          b.classList.add('armed');
+        });
+        b.addEventListener('dragleave', () => b.classList.remove('armed'));
+        b.addEventListener('drop', (e) => {
+          if (!state.drag) return;
+          e.preventDefault();
+          e.stopPropagation();
+          b.classList.remove('armed');
+          dropOnCrumb(b);
+        });
+      }
       crumbs.appendChild(b);
     });
+
+    // 面包屑这一条整体兜底：落在空白处也算移出一层，不用精确压到那一小段文字上
+    crumbs.ondragover = (e) => {
+      if (!state.drag) return;
+      e.preventDefault();
+      crumbs.classList.add('armed-bar');
+    };
+    crumbs.ondragleave = (e) => {
+      if (e.target === crumbs) crumbs.classList.remove('armed-bar');
+    };
+    crumbs.ondrop = async (e) => {
+      if (!state.drag) return;
+      e.preventDefault();
+      e.stopPropagation();
+      crumbs.classList.remove('armed-bar');
+      const out = oneLevelOut();
+      if (out) await moveOutFrom(state.drag, out.parentId, out.anchorId);
+    };
 
     const top = state.overlay[state.overlay.length - 1];
     const grid = $('subgrid');
@@ -2552,7 +2695,7 @@
     setInterval(tick, 20000);
   }
 
-  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, insertManyBeside: insertManyBeside, applyDrop: applyDrop, moveManyTo: moveManyTo, intentAt: intentAt, state: state };
+  window.__bd = { moveNode: moveNode, placeAt: placeAt, insertBeside: insertBeside, insertManyBeside: insertManyBeside, applyDrop: applyDrop, moveManyTo: moveManyTo, moveManyAfter: moveManyAfter, dropOnCrumb: dropOnCrumb, reload: reloadNow, intentAt: intentAt, state: state };
 
   // 把能力交给插件内核，再启动插件。
   // 目前 i18n 是第一个插件，其余功能仍在这个文件里，后续可以按同样方式逐个搬出去。

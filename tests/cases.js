@@ -262,6 +262,44 @@
       ok('建组后撤销逐位还原', false, '可用书签不足 2 个');
     }
 
+    // 从文件夹里拖到面包屑上移出到上层，并可一次撤销
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(300);
+    const f9 = tiles().find((n) => n.classList.contains('folder'));
+    if (f9) {
+      const folderId = f9.dataset.id;
+      const inner = await chrome.bookmarks.create({ parentId: folderId, title: 'inner', url: 'https://inner.example/' });
+      await window.__bd.reload();
+      await wait(300);
+      const fTile = tiles().find((n) => n.dataset.id === folderId);
+      fTile.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await wait(350);
+      const sub = Array.from(document.getElementById('subgrid').children).filter((n) => n.classList.contains('tile'));
+      const innerTile = sub.find((n) => n.dataset.id === inner.id);
+      const pageCrumb = document.querySelector('#crumbs button[data-crumb-id]');
+      if (innerTile && pageCrumb) {
+        const cr = center(pageCrumb);
+        const dt9 = new DataTransfer();
+        innerTile.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt9 }));
+        pageCrumb.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt9, clientX: cr.x, clientY: cr.y }));
+        pageCrumb.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt9, clientX: cr.x, clientY: cr.y }));
+        await wait(700);
+        const pageOrder = order(pageId);
+        const inPage = pageOrder.indexOf(inner.id);
+        const leftFolder = order(folderId).indexOf(inner.id) < 0;
+        ok('拖到面包屑移出到上层', inPage === pageOrder.indexOf(folderId) + 1 && leftFolder,
+          '页内=' + pageOrder.join(',') + ' 文件夹=' + order(folderId).join(','));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+        await wait(800);
+        const back = order(folderId).indexOf(inner.id) >= 0 && order(pageId).indexOf(inner.id) < 0;
+        ok('移出文件夹可撤销', back, '撤销后文件夹=' + order(folderId).join(',') + ' 页内=' + order(pageId).join(','));
+      } else {
+        ok('拖到面包屑移出到上层', false, '没拿到内部图标或面包屑');
+      }
+    } else {
+      ok('拖到面包屑移出到上层', false, '页面上没有文件夹');
+    }
+
     const box = document.createElement('pre');
     box.id = 'result';
     box.textContent = JSON.stringify(results);

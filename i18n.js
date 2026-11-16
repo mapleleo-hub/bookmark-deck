@@ -94,6 +94,7 @@
     'undo.group': '建组「{title}」',
     'undo.bulkDelete': '批量删除 {n} 项',
     'undo.bulkMove': '移动 {n} 项',
+    'undo.moveOut': '移出文件夹 {n} 项',
     'undo.newBookmark': '新增「{title}」',
     'undo.editBookmark': '修改「{title}」',
     'undo.newFolder': '新建文件夹「{title}」',
@@ -104,6 +105,7 @@
     'folder.nameDefault': '新文件夹',
     'folder.groupPrompt': '把这两项放进新文件夹，取个名字',
     'folder.cannotNest': '不能把文件夹移动到它自己或它的子文件夹里',
+    'crumbs.dropOut': '拖到这里移出到「{title}」',
 
     'form.addBookmark': '添加书签',
     'form.editBookmark': '编辑书签',
@@ -274,6 +276,7 @@
     'undo.group': 'Group "{title}"',
     'undo.bulkDelete': 'Delete {n} items',
     'undo.bulkMove': 'Move {n} items',
+    'undo.moveOut': 'Move {n} item(s) out of the folder',
     'undo.newBookmark': 'Add "{title}"',
     'undo.editBookmark': 'Edit "{title}"',
     'undo.newFolder': 'New folder "{title}"',
@@ -284,6 +287,7 @@
     'folder.nameDefault': 'New folder',
     'folder.groupPrompt': 'Put these two into a new folder. Name it:',
     'folder.cannotNest': 'Cannot move a folder into itself or its subfolder',
+    'crumbs.dropOut': 'Drop here to move out to "{title}"',
 
     'form.addBookmark': 'Add bookmark',
     'form.editBookmark': 'Edit bookmark',
