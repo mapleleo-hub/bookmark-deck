@@ -12,9 +12,6 @@
     e: { css: 'linear-gradient(150deg,#f6eef5 0%,#e7e9f8 55%,#dde9f6 100%)', theme: 'light' }
   };
 
-  // 压住另一个图标多久才切到「建组」语义（毫秒）。太短手一抖就误建组，太长会以为没有反应。
-  const ARM_DELAY = 600;
-
   const ENGINES = [
     { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=%s' },
     { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q=%s' },
@@ -469,62 +466,75 @@
     });
   }
 
-  // 命中判定用被拖图标方块的中心，而不是指针位置：
-  // 用户往往是抓着图标边缘拖的，指针会停在目标图标之外，只看指针会永远判不中
-  function hitTest(tile, container, pointerX) {
-    const a = frameRect(tile);
-    const cx = (a.left + a.right) / 2;
-    const cy = (a.top + a.bottom) / 2;
+  // 意图判定用位置分区，不再用停留计时：
+  // 盖在图标上 = 建组，落在图标左边或右边 = 插入到那一侧。
+  // 自由布局：被拖图标跟手，用它的方块与目标方块的重叠比例判定。
+  // 网格模式：图标不跟手，用指针相对目标中心的偏移判定。
+  const GROUP_OVERLAP = 0.62;   // 自由布局：水平/垂直重叠都超过它才算"盖住"
+  const GROUP_ZONE_X = 0.45;    // 网格模式：指针在目标中心水平 ±45% 半宽内算建组
+  const GROUP_ZONE_Y = 0.9;     // 网格模式：指针在图标方块垂直范围内（含 10% 余量）
+  const NEAR_ZONE_X = 1.6;      // 网格模式：指针水平超出这个范围就不参与
+
+  function intentAt(container, opts) {
+    const pointer = opts.pointer || null;
+    const excludeId = opts.excludeId || null;
+    const dragBox = opts.dragEl ? frameRect(opts.dragEl) : null;
     let best = null;
-    let bestDist = Infinity;
+    let bestScore = -1;
+
     Array.from(container.children).forEach((n) => {
-      if (!n.classList.contains('tile') || n === tile) return;
-      const r = n.getBoundingClientRect();
-      const inside = cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
-      if (!inside) return;
-      const d = Math.abs(cx - (r.left + r.right) / 2) + Math.abs(cy - (r.top + r.bottom) / 2);
-      if (d < bestDist) { bestDist = d; best = n; }
+      if (!n.classList.contains('tile')) return;
+      if (n === opts.dragEl || n.dataset.id === excludeId) return;
+      const b = frameRect(n);
+      const cx = (b.left + b.right) / 2;
+      const cy = (b.top + b.bottom) / 2;
+      const halfW = Math.max(b.width / 2, 1);
+      const halfH = Math.max(b.height / 2, 1);
+
+      if (pointer) {
+        const adx = Math.abs(pointer.x - cx) / halfW;
+        const ady = Math.abs(pointer.y - cy) / halfH;
+        if (adx > NEAR_ZONE_X || ady > 1.5) return;
+        const score = 2 - adx - ady * 0.4;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { el: n, group: adx <= GROUP_ZONE_X && ady <= GROUP_ZONE_Y, side: pointer.x < cx ? 'left' : 'right' };
+        }
+        return;
+      }
+
+      if (!dragBox) return;
+      const w = Math.min(dragBox.right - dragBox.left, b.width);
+      const h = Math.min(dragBox.bottom - dragBox.top, b.height);
+      if (w <= 0 || h <= 0) return;
+      const ox = Math.min(dragBox.right, b.right) - Math.max(dragBox.left, b.left);
+      const oy = Math.min(dragBox.bottom, b.bottom) - Math.max(dragBox.top, b.top);
+      if (ox <= 0 || oy <= 0) return;
+      const rx = ox / w;
+      const ry = oy / h;
+      if (ry < 0.3) return; // 不在同一行
+      const score = Math.min(rx, ry);
+      if (score > bestScore) {
+        bestScore = score;
+        const dcx = (dragBox.left + dragBox.right) / 2;
+        best = { el: n, group: rx >= GROUP_OVERLAP && ry >= GROUP_OVERLAP, side: dcx < cx ? 'left' : 'right' };
+      }
     });
-    if (!best) return null;
-    const r = best.getBoundingClientRect();
-    return { el: best, side: pointerX < r.left + r.width / 2 ? 'left' : 'right' };
+
+    if (!best || bestScore < 0.2) return null;
+    return { el: best.el, side: best.group ? 'group' : best.side };
   }
 
-  const armState = { id: null, timer: 0 };
-
-  function armOnHover(tile) {
-    if (armState.id === tile.dataset.id) return;
-    clearTimeout(armState.timer);
-    document.querySelectorAll('.tile.group-arm').forEach((n) => n.classList.remove('group-arm'));
-    armState.id = tile.dataset.id;
-    armState.timer = setTimeout(() => {
-      document.querySelectorAll('.tile.drop-left, .tile.drop-right').forEach((n) => n.classList.remove('drop-left', 'drop-right'));
-      tile.classList.add('group-arm');
-      tile.dataset.armed = '1';
-    }, ARM_DELAY);
-  }
-
-  function disarmTile(tile) {
-    clearTimeout(armState.timer);
-    armState.id = null;
-    if (tile) {
-      tile.classList.remove('group-arm');
-      delete tile.dataset.armed;
-    }
-  }
-
-  function disarmAll() {
-    clearTimeout(armState.timer);
-    armState.id = null;
-    document.querySelectorAll('.tile.group-arm').forEach((n) => {
-      n.classList.remove('group-arm');
-      delete n.dataset.armed;
+  function paintIntent(intent) {
+    document.querySelectorAll('.tile.drop-left, .tile.drop-right, .tile.group-arm').forEach((n) => {
+      n.classList.remove('drop-left', 'drop-right', 'group-arm');
     });
+    if (!intent) return;
+    if (intent.side === 'group') intent.el.classList.add('group-arm');
+    else intent.el.classList.add(intent.side === 'left' ? 'drop-left' : 'drop-right');
   }
 
-  function clearDropTargets() {
-    document.querySelectorAll('.tile.drop-target').forEach((n) => n.classList.remove('drop-target'));
-  }
+  function clearIntent() { paintIntent(null); }
 
   async function groupTiles(aId, bId, parentId) {
     if (!hasAPI) { toast('演示模式不能保存'); return; }
@@ -578,23 +588,21 @@
     applyVisualOrder(parentId);
   }
 
-  async function finishDrag(tile, parentId, container, target, side, targetEl) {
-    if (!target) {
-      const snap = await folderSnapshot(parentId);
+  async function finishDrag(tile, parentId, container, intent) {
+    if (intent && intent.side === 'group') {
+      if (intent.el.classList.contains('folder')) await moveNode(tile.dataset.id, intent.el.dataset.id, -1);
+      else await groupTiles(tile.dataset.id, intent.el.dataset.id, parentId);
+      return;
+    }
+
+    const snap = await folderSnapshot(parentId);
+    if (intent) {
       pushUndo('布局调整', () => restoreSnapshot(snap));
-    }
-    if (target) {
-      if (target.classList.contains('folder')) {
-        await moveNode(tile.dataset.id, target.dataset.id, -1);
-      } else {
-        await groupTiles(tile.dataset.id, target.dataset.id, parentId);
-      }
+      insertAt(parentId, container, tile.dataset.id, intent.el.dataset.id, intent.side);
       return;
     }
-    if (targetEl && side) {
-      insertAt(parentId, container, tile.dataset.id, targetEl.dataset.id, side);
-      return;
-    }
+
+    pushUndo('布局调整', () => restoreSnapshot(snap));
     const size = cellSize();
     const board = boardOf(parentId);
     const cols = columnsFor(container, size);
@@ -621,23 +629,8 @@
       const ox = parseFloat(tile.style.left) || 0;
       const oy = parseFloat(tile.style.top) || 0;
       let moved = false;
-      let hover = null;
-      let armed = null;
-      let armTimer = 0;
+      let intent = null;
       try { tile.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
-
-      const clearHit = () => {
-        document.querySelectorAll('.tile.drop-target, .tile.drop-left, .tile.drop-right').forEach((n) => {
-          n.classList.remove('drop-target', 'drop-left', 'drop-right');
-        });
-      };
-
-      const disarm = () => {
-        clearTimeout(armTimer);
-        armTimer = 0;
-        armed = null;
-        document.querySelectorAll('.tile.group-arm').forEach((n) => n.classList.remove('group-arm'));
-      };
 
       const onMove = (ev) => {
         const dx = ev.clientX - sx;
@@ -647,38 +640,18 @@
         tile.classList.add('dragging');
         tile.style.left = (ox + dx) + 'px';
         tile.style.top = (oy + dy) + 'px';
-
-        const hit = hitTest(tile, container, ev.clientX, ev.clientY);
-        clearHit();
-        if (hit) {
-          hit.el.classList.add('drop-target');
-          if (armed === hit.el) hit.el.classList.add('group-arm');
-          else hit.el.classList.add(hit.side === 'left' ? 'drop-left' : 'drop-right');
-        }
-        if ((hit && hit.el) !== hover) {
-          hover = hit && hit.el;
-          disarm();
-          if (hover) {
-            armTimer = setTimeout(() => {
-              armed = hover;
-              clearHit();
-              hover.classList.add('drop-target', 'group-arm');
-            }, ARM_DELAY);
-          }
-        }
+        intent = intentAt(container, { dragEl: tile });
+        paintIntent(intent);
       };
 
-      const onUp = async (ev) => {
+      const onUp = async () => {
         tile.removeEventListener('pointermove', onMove);
         tile.removeEventListener('pointerup', onUp);
         tile.classList.remove('dragging');
-        const hit = hitTest(tile, container, ev.clientX, ev.clientY);
-        const armedEl = armed && hit && armed === hit.el ? armed : null;
-        clearHit();
-        disarm();
+        clearIntent();
         if (!moved) return;
         tile.dataset.dragged = '1';
-        await finishDrag(tile, parentId, container, armedEl, hit ? hit.side : null, armedEl ? null : (hit ? hit.el : null));
+        await finishDrag(tile, parentId, container, intent);
       };
 
       tile.addEventListener('pointermove', onMove);
@@ -750,39 +723,38 @@
       e.dataTransfer.setData('text/plain', item.id);
     });
     tile.addEventListener('dragend', () => {
-      disarmAll();
+      clearIntent();
       tile.classList.remove('dragging');
-      disarmAll();
       state.drag = null;
     });
     tile.addEventListener('dragover', (e) => {
       if (!state.drag || state.drag.id === item.id) return;
       e.preventDefault();
-      const r = tile.getBoundingClientRect();
-      const side = e.clientX < r.left + r.width / 2 ? 'left' : 'right';
-      const armedNow = tile.dataset.armed === '1';
-      tile.classList.toggle('drop-left', !armedNow && side === 'left');
-      tile.classList.toggle('drop-right', !armedNow && side === 'right');
-      if (!isFolder) armOnHover(tile);
-    });
-    tile.addEventListener('dragleave', () => {
-      tile.classList.remove('drop-left', 'drop-right');
-      disarmTile(tile);
+      paintIntent(intentAt(tile.parentElement, {
+        excludeId: state.drag.id,
+        pointer: { x: e.clientX, y: e.clientY }
+      }));
     });
     tile.addEventListener('drop', async (e) => {
       e.preventDefault();
-      const r = tile.getBoundingClientRect();
-      const side = e.clientX < r.left + r.width / 2 ? 'left' : 'right';
-      tile.classList.remove('drop-left', 'drop-right');
       const drag = state.drag;
-      const armed = tile.dataset.armed === '1';
-      disarmTile(tile);
       if (!drag || drag.id === item.id) return;
-      if (armed && !isFolder) { await groupTiles(drag.id, item.id, ctx.parentId); return; }
-      if (isFolder) { await moveNode(drag.id, item.id, -1); return; }
+      const intent = intentAt(tile.parentElement, {
+        excludeId: drag.id,
+        pointer: { x: e.clientX, y: e.clientY }
+      });
+      clearIntent();
+      if (!intent) { await moveNode(drag.id, ctx.parentId, -1); return; }
+      if (intent.side === 'group') {
+        if (intent.el.classList.contains('folder')) await moveNode(drag.id, intent.el.dataset.id, -1);
+        else await groupTiles(drag.id, intent.el.dataset.id, ctx.parentId);
+        return;
+      }
       const siblings = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
-      const raw = siblings.indexOf(tile) + (side === 'right' ? 1 : 0);
-      await moveNode(drag.id, ctx.parentId, raw < 0 ? -1 : resolveDropIndex(drag, ctx.parentId, raw));
+      const at = siblings.indexOf(intent.el);
+      if (at < 0) { await moveNode(drag.id, ctx.parentId, -1); return; }
+      const raw = at + (intent.side === 'right' ? 1 : 0);
+      await moveNode(drag.id, ctx.parentId, resolveDropIndex(drag, ctx.parentId, raw));
     });
 
     return tile;
@@ -816,10 +788,15 @@
       grid.style.height = '';
     }
 
-    grid.ondragover = (e) => { if (state.drag) e.preventDefault(); };
+    grid.ondragover = (e) => {
+      if (!state.drag) return;
+      e.preventDefault();
+      if (e.target === grid) clearIntent();
+    };
     grid.ondrop = async (e) => {
       if (!state.drag || e.target !== grid) return;
       e.preventDefault();
+      clearIntent();
       await moveNode(state.drag.id, parentId, -1);
     };
   }
@@ -877,10 +854,15 @@
       grid.style.height = '';
     }
 
-    grid.ondragover = (e) => { if (state.drag) e.preventDefault(); };
+    grid.ondragover = (e) => {
+      if (!state.drag) return;
+      e.preventDefault();
+      if (e.target === grid) clearIntent();
+    };
     grid.ondrop = async (e) => {
       if (!state.drag || e.target !== grid) return;
       e.preventDefault();
+      clearIntent();
       await moveNode(state.drag.id, top.id, -1);
     };
   }

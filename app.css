@@ -369,11 +369,6 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   cursor: grabbing;
 }
 
-.tile.drop-target .frame {
-  outline: 2px solid var(--accent-soft);
-  outline-offset: 2px;
-}
-
 /* 换位提示：贴着图标方块左右侧，不含标题行 */
 .tile.drop-left::before,
 .tile.drop-right::after {
