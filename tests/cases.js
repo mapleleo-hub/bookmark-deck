@@ -37,10 +37,31 @@
 
   window.runTests = async function () {
     try {
-    const all = tiles();
+    let all = tiles();
     ok('渲染当前分页', all.length > 0, 'tile 数量 ' + all.length);
 
     if (all.length >= 4) {
+    // 整组覆盖另一个书签：整组加目标一起收进新文件夹（放在最前，此时页面上有 4 个书签）
+    const groupList = tiles().filter((n) => !n.classList.contains('folder'));
+    if (groupList.length >= 3) {
+      groupList[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      groupList[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      window.__test.log.length = 0;
+      const gc = center(groupList[2]);
+      const dtG = new DataTransfer();
+      groupList[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtG }));
+      groupList[2].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtG, clientX: gc.x, clientY: gc.y }));
+      groupList[2].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtG, clientX: gc.x, clientY: gc.y }));
+      await wait(600);
+      const moved = window.__test.log.filter((x) => x[0] === 'move').length;
+      ok('整组覆盖建组', moved >= 3, '进入新文件夹的条目数=' + moved);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+      await wait(800);
+      all = tiles();
+    } else {
+      ok('整组覆盖建组', false, '书签只有 ' + groupList.length + ' 个，至少需要 3 个');
+    }
+
       // 相邻插入：首项拖到第 2 项右侧
       const before = order('116');
       const hint = dragGrid(all[0], all[1], 0.5);
@@ -177,6 +198,34 @@
     ok('批量移动全部生效且可一次撤销', allMoved && allBack,
       '移动后目标=' + movedDst.join(',') + ' 源=' + leftSrc.join(',') + ' | 撤销后源=' + backSrc.join(',') + ' 期望=' + srcOrder.join(','));
 
+    // 整组拖进已有文件夹：两项都要进去，一次撤销回来
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(350);
+    const list6 = tiles();
+    const plain = list6.filter((n) => !n.classList.contains('folder'));
+    const folderTile = list6.filter((n) => n.classList.contains('folder'))[0];
+    if (folderTile && plain.length >= 2) {
+      plain[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      plain[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      const beforeKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
+      const fc = center(folderTile);
+      const dtF = new DataTransfer();
+      plain[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtF }));
+      folderTile.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtF, clientX: fc.x, clientY: fc.y }));
+      folderTile.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtF, clientX: fc.x, clientY: fc.y }));
+      await wait(700);
+      const afterKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
+      const bothIn = plain.slice(0, 2).every((p) => afterKids.indexOf(p.dataset.id) >= 0);
+      ok('整组拖进文件夹', bothIn && afterKids.length === beforeKids.length + 2,
+        '前=' + beforeKids.join(',') + ' 后=' + afterKids.join(','));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+      await wait(800);
+      const backKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
+      ok('整组进文件夹可撤销', backKids.length === beforeKids.length, '撤销后=' + backKids.join(','));
+    } else {
+      ok('整组拖进文件夹', false, '页面上没有可用的文件夹或书签');
+    }
+
     const box = document.createElement('pre');
     box.id = 'result';
     box.textContent = JSON.stringify(results);
@@ -222,6 +271,54 @@
     const allBack = pair.every((id) => backDst.indexOf(id) < 0) && backSrc.join(',') === srcOrder.join(',');
     ok('批量移动全部生效且可一次撤销', allMoved && allBack,
       '移动后目标=' + movedDst.join(',') + ' 源=' + leftSrc.join(',') + ' | 撤销后源=' + backSrc.join(',') + ' 期望=' + srcOrder.join(','));
+
+    // 整组拖进已有文件夹：两项都要进去，一次撤销回来
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(250);
+    const list6 = tiles();
+    const folderTile = list6.filter((n) => n.classList.contains('folder'))[0];
+    const plain = list6.filter((n) => !n.classList.contains('folder'));
+    if (folderTile && plain.length >= 2) {
+      plain[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      plain[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      const beforeKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
+      const fc = center(folderTile);
+      const dtF = new DataTransfer();
+      plain[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtF }));
+      folderTile.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtF, clientX: fc.x, clientY: fc.y }));
+      folderTile.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtF, clientX: fc.x, clientY: fc.y }));
+      await wait(600);
+      const afterKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
+      const bothIn = plain.slice(0, 2).every((p) => afterKids.indexOf(p.dataset.id) >= 0);
+      ok('整组拖进文件夹', bothIn && afterKids.length === beforeKids.length + 2,
+        '前=' + beforeKids.join(',') + ' 后=' + afterKids.join(','));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+      await wait(700);
+      const backKids = (window.__test.find(folderTile.dataset.id).children || []).map((k) => k.id);
+      ok('整组进文件夹可撤销', backKids.length === beforeKids.length, '撤销后=' + backKids.join(','));
+    } else {
+      ok('整组拖进文件夹', false, '页面上没有可用的文件夹或书签');
+    }
+
+    // 整组覆盖另一个书签：整组加目标一起收进新文件夹
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await wait(300);
+    const list7 = tiles().filter((n) => !n.classList.contains('folder'));
+    if (list7.length >= 3) {
+      list7[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      list7[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+      window.__test.log.length = 0;
+      const tc = center(list7[2]);
+      const dtG = new DataTransfer();
+      list7[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dtG }));
+      list7[2].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dtG, clientX: tc.x, clientY: tc.y }));
+      list7[2].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dtG, clientX: tc.x, clientY: tc.y }));
+      await wait(600);
+      const moves = window.__test.log.filter((x) => x[0] === 'move').length;
+      ok('整组覆盖建组', moves >= 3, '进入新文件夹的条目数=' + moves);
+    } else {
+      ok('整组覆盖建组', false, '书签不足 3 个');
+    }
 
     const box = document.createElement('pre');
       box.id = 'result';

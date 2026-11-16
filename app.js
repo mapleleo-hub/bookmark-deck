@@ -576,32 +576,35 @@
 
   function clearIntent() { paintIntent(null); }
 
-  async function groupTiles(aId, bId, parentId) {
+  // 把一组条目和目标一起收进新建文件夹。ids 是被拖的项（可能多项），targetId 是覆盖到的那个
+  async function groupItems(ids, targetId, parentId) {
     if (!hasAPI) { toast(t('toast.demoNoSave')); return; }
+    const members = ids.filter((id) => id !== targetId);
+    if (!members.length) return;
     const name = prompt(t('folder.groupPrompt'), t('folder.nameDefault'));
     if (name === null) { render(); return; }
     const title = name.trim() || t('folder.nameDefault');
-    let beforeA = null;
-    let beforeB = null;
-    try {
-      const [na] = await chrome.bookmarks.get(aId);
-      const [nb] = await chrome.bookmarks.get(bId);
-      const sa = await chrome.bookmarks.getChildren(na.parentId);
-      const sb = await chrome.bookmarks.getChildren(nb.parentId);
-      beforeA = { parentId: na.parentId, index: sa.findIndex((k) => k.id === aId) };
-      beforeB = { parentId: nb.parentId, index: sb.findIndex((k) => k.id === bId) };
-    } catch (e) { beforeA = null; }
+    const order = [targetId].concat(members);
+    const origins = [];
+    for (const id of order) {
+      try {
+        const [node] = await chrome.bookmarks.get(id);
+        const sibs = await chrome.bookmarks.getChildren(node.parentId);
+        origins.push({ id: id, parentId: node.parentId, index: sibs.findIndex((k) => k.id === id) });
+      } catch (e) { /* 已被别处删掉，跳过 */ }
+    }
+    if (origins.length < 2) { toast(t('toast.groupFail', { msg: 'items missing' })); return; }
     try {
       const folder = await chrome.bookmarks.create({ parentId: parentId, title: title });
-      await chrome.bookmarks.move(aId, { parentId: folder.id, index: 0 });
-      await chrome.bookmarks.move(bId, { parentId: folder.id, index: 1 });
-      if (beforeA && beforeB) {
-        pushUndo(t('undo.group', { title: title }), async () => {
-          await placeAt(aId, beforeA.parentId, Math.max(beforeA.index, 0));
-          await placeAt(bId, beforeB.parentId, Math.max(beforeB.index, 0));
-          await chrome.bookmarks.removeTree(folder.id);
-        });
+      let i = 0;
+      for (const o of origins) {
+        await placeAt(o.id, folder.id, i);
+        i += 1;
       }
+      pushUndo(t('undo.group', { title: title }), async () => {
+        for (const o of origins) await placeAt(o.id, o.parentId, Math.max(o.index, 0));
+        await chrome.bookmarks.removeTree(folder.id);
+      });
       toast(t('toast.moveInto', { title: title }));
       setTimeout(() => reloadNow(), 60);
     } catch (e) {
@@ -634,10 +637,10 @@
     const group = drag.group && drag.group.length > 1 ? drag.group : null;
 
     if (intent && intent.side === 'group') {
-      // 覆盖建组只针对被拖的那一项，多选时其余保持不动；建组自带一条撤销
-      if (intent.el.classList.contains('folder')) await moveNode(drag.id, intent.el.dataset.id, -1);
-      else await groupTiles(drag.id, intent.el.dataset.id, parentId);
+      const ids = group || [drag.id];
       clearSelection();
+      if (intent.el.classList.contains('folder')) await moveManyTo(ids, intent.el.dataset.id);
+      else await groupItems(ids, intent.el.dataset.id, parentId);
       return;
     }
 
@@ -706,16 +709,27 @@
   }
 
   async function finishDrag(tile, parentId, container, intent) {
+    const sel = state.selection.has(tile.dataset.id) && state.selection.size > 1
+      ? Array.from(state.selection)
+      : null;
+
     if (intent && intent.side === 'group') {
-      if (intent.el.classList.contains('folder')) await moveNode(tile.dataset.id, intent.el.dataset.id, -1);
-      else await groupTiles(tile.dataset.id, intent.el.dataset.id, parentId);
+      const ids = sel || [tile.dataset.id];
+      clearSelection();
+      if (intent.el.classList.contains('folder')) await moveManyTo(ids, intent.el.dataset.id);
+      else await groupItems(ids, intent.el.dataset.id, parentId);
       return;
     }
 
     const snap = await folderSnapshot(parentId);
     pushUndo(t('undo.layout'), () => restoreSnapshot(snap));
     if (intent) {
-      await insertBeside(tile.dataset.id, parentId, intent.el.dataset.id, intent.side);
+      if (sel) {
+        clearSelection();
+        await insertManyBeside(sel, parentId, intent.el.dataset.id, intent.side);
+      } else {
+        await insertBeside(tile.dataset.id, parentId, intent.el.dataset.id, intent.side);
+      }
       return;
     }
     const size = cellSize();

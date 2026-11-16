@@ -32,7 +32,7 @@ writeFileSync(page, html);
 
 const run = spawnSync(chrome, [
   '--headless=new', '--disable-gpu', '--window-size=1400,900',
-  '--virtual-time-budget=8000', '--dump-dom',
+  '--virtual-time-budget=20000', '--dump-dom',
   'file:///' + page.replace(/\\/g, '/') + '?g=116&engine=local'
 ], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 
