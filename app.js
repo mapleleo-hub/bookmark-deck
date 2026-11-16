@@ -172,7 +172,7 @@
       btn.title = g.title;
       btn.addEventListener('click', () => {
         state.activeId = g.id;
-        state.query = '';
+        closeFinder();
         $('q').value = '';
         render();
       });
@@ -338,8 +338,6 @@
     grid.ondragover = null;
     grid.ondrop = null;
 
-    if (state.query) { renderSearch(grid); return; }
-
     const group = currentGroup();
     if (!group) {
       grid.innerHTML = '<p class="empty">这个书签根目录是空的，点侧栏的新建分页开始。</p>';
@@ -359,33 +357,6 @@
       e.preventDefault();
       await moveNode(state.drag.id, parentId, -1);
     };
-  }
-
-  function renderSearch(grid) {
-    const q = state.query.toLowerCase();
-    const hits = [];
-    for (const g of state.groups) {
-      for (const k of childrenOf(g)) {
-        const hay = ((k.title || '') + ' ' + (k.url || '')).toLowerCase();
-        if (hay.indexOf(q) >= 0) hits.push({ item: k, group: g });
-        if (hits.length > 300) break;
-      }
-    }
-    if (!hits.length) {
-      grid.innerHTML = '<p class="empty">没有匹配的书签。</p>';
-      return;
-    }
-    hits.forEach(({ item, group }) => {
-      const tile = makeTile(item, { parentId: parentIdOf(group), groupId: group.id });
-      const nameEl = tile.querySelector('.name');
-      if (nameEl) {
-        const tag = document.createElement('span');
-        tag.className = 'n';
-        tag.textContent = group.title;
-        nameEl.appendChild(tag);
-      }
-      grid.appendChild(tile);
-    });
   }
 
   function render() {
@@ -596,7 +567,7 @@
 
   function blankMenu(x, y) {
     showMenu(x, y, [
-      { label: '搜索标签页', onClick: openPalette },
+      { label: '搜索书签和标签', onClick: openPalette },
       { sep: true },
       { label: '添加书签', onClick: () => openForm(null, { parentId: defaultParentId() }) },
       { label: '新建文件夹', onClick: addFolder },
@@ -641,89 +612,192 @@
 
   function hideMenu() { $('menu').hidden = true; }
 
-  /* ---------- 搜索打开着的标签页 ---------- */
-  const palette = { tabs: [], list: [], index: 0 };
+  /* ---------- 统一搜索：标签与书签 ---------- */
+  const finder = { items: [], index: 0, where: null, tabs: [], seq: 0 };
 
-  async function listOpenTabs() {
+  async function loadTabs() {
     if (hasAPI && chrome.tabs) {
       const tabs = await chrome.tabs.query({});
       return tabs
         .filter((t) => t.url && !t.url.startsWith('chrome-extension://') && t.url !== 'chrome://newtab/')
-        .map((t) => ({ id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, active: !!t.active }));
+        .map((t) => ({ type: 'tab', id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, active: !!t.active }));
     }
     const out = [];
     (function walk(nodes) {
       for (const n of nodes || []) {
-        if (n.url && out.length < 12) out.push({ id: out.length + 1, title: n.title || n.url, url: n.url, demo: true });
+        if (n.url && out.length < 12) out.push({ type: 'tab', id: out.length + 1, title: n.title || n.url, url: n.url, demo: true });
         if (n.children) walk(n.children);
       }
     })(window.MOCK_TREE ? window.MOCK_TREE.children : []);
     return out;
   }
 
-  async function openPalette() {
-    palette.tabs = await listOpenTabs();
-    palette.index = 0;
-    $('pq').value = '';
-    renderPalette('');
-    $('palette').hidden = false;
-    $('pq').focus();
+  function bookmarkIndex() {
+    const out = [];
+    (function walk(nodes, path) {
+      for (const n of nodes || []) {
+        const here = n.url ? path : path.concat(n.title || '未命名');
+        if (n.url) out.push({ type: 'book', id: n.id, title: n.title || hostOf(n.url), url: n.url, path: path.join(' / ') });
+        if (n.children) walk(n.children, here);
+      }
+    })(state.roots, []);
+    return out;
   }
 
-  function closePalette() { $('palette').hidden = true; }
+  function match(item, key) {
+    if (!key) return true;
+    return (item.title + ' ' + item.url + ' ' + (item.path || '')).toLowerCase().indexOf(key) >= 0;
+  }
 
-  function renderPalette(q) {
-    const key = (q || '').trim().toLowerCase();
-    palette.list = palette.tabs.filter((t) => !key || (t.title + ' ' + t.url).toLowerCase().indexOf(key) >= 0);
-    if (palette.index >= palette.list.length) palette.index = Math.max(palette.list.length - 1, 0);
-    const box = $('plist');
-    box.textContent = '';
-    if (!palette.list.length) {
+  async function buildResults(query) {
+    const key = query.trim().toLowerCase();
+    if (!finder.tabs.length) finder.tabs = await loadTabs();
+    const tabs = finder.tabs.filter((t) => match(t, key));
+    const books = key ? bookmarkIndex().filter((b) => match(b, key)) : [];
+    return tabs.concat(books);
+  }
+
+  async function refreshFinder(query) {
+    const seq = ++finder.seq;
+    const items = await buildResults(query);
+    if (seq !== finder.seq) return;
+    finder.items = items;
+    if (finder.index >= finder.items.length) finder.index = Math.max(finder.items.length - 1, 0);
+    paintFinder();
+  }
+
+  function finderHost() {
+    return finder.where === 'palette' ? $('plist') : $('flist');
+  }
+
+  function paintFinder() {
+    const host = finderHost();
+    if (!host) return;
+    host.textContent = '';
+
+    const tabs = finder.items.filter((i) => i.type === 'tab');
+    const books = finder.items.filter((i) => i.type === 'book');
+    let i = 0;
+
+    const group = (label, list) => {
+      if (!list.length) return;
+      const head = document.createElement('div');
+      head.className = 'fgroup';
+      head.textContent = label + ' · ' + list.length;
+      host.appendChild(head);
+      list.forEach((item) => {
+        host.appendChild(finderRow(item, i));
+        i += 1;
+      });
+    };
+
+    if (!finder.items.length) {
       const p = document.createElement('p');
       p.className = 'empty';
-      p.textContent = '没有匹配的标签页';
-      box.appendChild(p);
+      p.textContent = '没有匹配的标签或书签';
+      host.appendChild(p);
     } else {
-      palette.list.forEach((t, i) => box.appendChild(paletteRow(t, i)));
+      group('标签', tabs);
+      group('书签', books);
     }
-    $('pcount').textContent = palette.list.length + ' / ' + palette.tabs.length;
+
+    const count = finder.where === 'palette' ? $('pcount') : $('fcount');
+    if (count) count.textContent = finder.items.length + ' 项';
   }
 
-  function paletteRow(tab, i) {
+  function finderRow(item, index) {
     const row = document.createElement('div');
-    row.className = 'prow' + (i === palette.index ? ' on' : '');
+    row.className = 'prow' + (index === finder.index ? ' on' : '');
     const icon = document.createElement('span');
     icon.className = 'picon';
-    icon.appendChild(makeIcon(tab.url, tab.title, 32));
+    icon.appendChild(makeIcon(item.url, item.title, 32));
     const main = document.createElement('span');
     main.className = 'pmain';
     const title = document.createElement('span');
     title.className = 'ptitle';
-    title.textContent = tab.title;
-    const url = document.createElement('span');
-    url.className = 'purl';
-    url.textContent = hostOf(tab.url) + (tab.active ? ' · 当前标签' : '');
-    main.append(title, url);
+    title.textContent = item.title;
+    const sub = document.createElement('span');
+    sub.className = 'purl';
+    sub.textContent = item.type === 'tab'
+      ? hostOf(item.url) + (item.active ? ' · 当前标签' : '')
+      : item.path || hostOf(item.url);
+    main.append(title, sub);
     row.append(icon, main);
-    row.addEventListener('click', () => activateTab(tab));
+    row.addEventListener('mousedown', (e) => e.preventDefault());
+    row.addEventListener('click', () => activateItem(item));
     row.addEventListener('mousemove', () => {
-      if (palette.index !== i) { palette.index = i; markPalette(); }
+      if (finder.index !== index) { finder.index = index; markFinder(); }
     });
     return row;
   }
 
-  function markPalette() {
-    Array.from($('plist').children).forEach((n, i) => n.classList.toggle('on', i === palette.index));
+  function markFinder() {
+    const host = finderHost();
+    if (!host) return;
+    Array.from(host.querySelectorAll('.prow')).forEach((n, i) => n.classList.toggle('on', i === finder.index));
   }
 
-  async function activateTab(tab) {
+  function activateItem(item) {
+    closeFinder();
+    if (item.type === 'tab') {
+      if (!hasAPI || item.demo) { toast('演示模式不能切换标签页'); return; }
+      chrome.tabs.update(item.id, { active: true })
+        .then(() => { if (item.windowId != null && chrome.windows) chrome.windows.update(item.windowId, { focused: true }); })
+        .catch((e) => toast('切换失败：' + e.message));
+      return;
+    }
+    location.href = item.url;
+  }
+
+  async function openInlineFinder() {
     closePalette();
-    if (!hasAPI || tab.demo) { toast('演示模式不能切换标签页'); return; }
-    try {
-      await chrome.tabs.update(tab.id, { active: true });
-      if (tab.windowId != null && chrome.windows) await chrome.windows.update(tab.windowId, { focused: true });
-    } catch (e) {
-      toast('切换失败：' + e.message);
+    finder.where = 'inline';
+    finder.index = 0;
+    $('finder').hidden = false;
+    await refreshFinder($('q').value);
+  }
+
+  async function openPalette() {
+    finder.where = 'palette';
+    finder.index = 0;
+    $('pq').value = '';
+    if (!finder.tabs.length) finder.tabs = await loadTabs();
+    $('palette').hidden = false;
+    $('pq').focus();
+    await refreshFinder('');
+  }
+
+  function closePalette() {
+    $('palette').hidden = true;
+    if (finder.where === 'palette') finder.where = null;
+  }
+
+  function closeFinder() {
+    $('finder').hidden = true;
+    closePalette();
+    finder.where = null;
+  }
+
+  function moveFinder(delta) {
+    if (!finder.items.length) return;
+    finder.index = Math.min(Math.max(finder.index + delta, 0), finder.items.length - 1);
+    markFinder();
+    const host = finderHost();
+    const on = host && host.querySelector('.prow.on');
+    if (on) on.scrollIntoView({ block: 'nearest' });
+  }
+
+  function finderKey(e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveFinder(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveFinder(-1); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const item = finder.items[finder.index];
+      if (item) activateItem(item);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (finder.where === 'palette') closePalette();
+      else { $('q').value = ''; closeFinder(); }
     }
   }
 
@@ -889,13 +963,9 @@
 
   /* ---------- 事件 ---------- */
   function wire() {
-    $('q').addEventListener('input', (e) => {
-      state.query = e.target.value.trim();
-      renderGrid();
-    });
-    $('q').addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { e.target.value = ''; state.query = ''; renderGrid(); }
-    });
+    $('q').addEventListener('focus', () => { openInlineFinder(); });
+    $('q').addEventListener('input', () => { openInlineFinder(); });
+    $('q').addEventListener('keydown', finderKey);
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'r' && hasAPI) {
         e.preventDefault();
@@ -910,31 +980,18 @@
       if (e.key === 'Escape') {
         hideMenu();
         if (!$('palette').hidden) closePalette();
+        else if (!$('finder').hidden) closeFinder();
         else if (!$('modal').hidden) $('modal').hidden = true;
         else if (!$('drawer').hidden) $('drawer').hidden = true;
         else if (state.overlay.length) closeFolder(state.overlay.length - 1);
       }
     });
 
-    $('pq').addEventListener('input', (e) => { palette.index = 0; renderPalette(e.target.value); });
-    $('pq').addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        palette.index = Math.min(palette.index + 1, palette.list.length - 1);
-        markPalette();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        palette.index = Math.max(palette.index - 1, 0);
-        markPalette();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        const tab = palette.list[palette.index];
-        if (tab) activateTab(tab);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        closePalette();
-      }
+    $('pq').addEventListener('input', (e) => {
+      finder.index = 0;
+      refreshFinder(e.target.value);
     });
+    $('pq').addEventListener('keydown', finderKey);
     $('closePalette').addEventListener('click', closePalette);
     $('palette').addEventListener('click', (e) => { if (e.target === $('palette')) closePalette(); });
 
@@ -960,6 +1017,10 @@
     $('form').addEventListener('submit', submitForm);
     document.addEventListener('click', (e) => {
       if (!$('menu').hidden && !$('menu').contains(e.target)) hideMenu();
+      if (!$('finder').hidden && !e.target.closest('.search-wrap')) {
+        $('finder').hidden = true;
+        if (finder.where === 'inline') finder.where = null;
+      }
     });
     document.addEventListener('contextmenu', (e) => {
       if (e.target.closest('.tile, .page, .menu, .drawer, .modal, .fab, .top, .sheet-head')) return;
