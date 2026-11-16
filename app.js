@@ -12,6 +12,9 @@
     e: { css: 'linear-gradient(150deg,#f6eef5 0%,#e7e9f8 55%,#dde9f6 100%)', theme: 'light' }
   };
 
+  // 压住另一个图标多久才切到「建组」语义（毫秒）。太短手一抖就误建组，太长会以为没有反应。
+  const ARM_DELAY = 600;
+
   const ENGINES = [
     { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=%s' },
     { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q=%s' },
@@ -498,7 +501,7 @@
       document.querySelectorAll('.tile.drop-left, .tile.drop-right').forEach((n) => n.classList.remove('drop-left', 'drop-right'));
       tile.classList.add('group-arm');
       tile.dataset.armed = '1';
-    }, 320);
+    }, ARM_DELAY);
   }
 
   function disarmTile(tile) {
@@ -660,7 +663,7 @@
               armed = hover;
               clearHit();
               hover.classList.add('drop-target', 'group-arm');
-            }, 320);
+            }, ARM_DELAY);
           }
         }
       };
