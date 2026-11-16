@@ -570,22 +570,21 @@
     }
   }
 
-  function insertAt(parentId, container, dragId, targetId, side) {
-    const board = boardOf(parentId);
-    const cells = orderedCells(board);
-    const order = orderedIds(board);
-    const from = order.indexOf(dragId);
-    if (from < 0) return;
-    order.splice(from, 1);
-    let to = order.indexOf(targetId);
-    if (to < 0) { applyFreeLayout(container, parentId); return; }
-    if (side === 'right') to += 1;
-    order.splice(to, 0, dragId);
-    const next = {};
-    order.forEach((id, i) => { next[id] = cells[i]; });
-    state.coords[parentId] = next;
-    applyFreeLayout(container, parentId);
-    applyVisualOrder(parentId);
+  // 插入位置一律以书签顺序为准。DOM 顺序可能还没跟上上一次 move（重渲染是异步的），
+  // 拿 DOM 索引算插入点会在连续拖动时把条目送错方向。
+  async function insertBeside(dragId, parentId, targetId, side) {
+    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    if (!dragId || !targetId || dragId === targetId) return;
+    let kids = [];
+    try { kids = await chrome.bookmarks.getChildren(parentId); } catch (e) { return; }
+    const at = kids.findIndex((k) => k.id === targetId);
+    const self = kids.findIndex((k) => k.id === dragId);
+    if (at < 0 || self < 0) return;
+    let raw = at + (side === 'right' ? 1 : 0);
+    if (self < raw) raw -= 1;
+    if (raw === self) return;
+    await moveNode(dragId, parentId, raw);
+    await reloadNow();
   }
 
   async function finishDrag(tile, parentId, container, intent) {
@@ -596,13 +595,11 @@
     }
 
     const snap = await folderSnapshot(parentId);
+    pushUndo('布局调整', () => restoreSnapshot(snap));
     if (intent) {
-      pushUndo('布局调整', () => restoreSnapshot(snap));
-      insertAt(parentId, container, tile.dataset.id, intent.el.dataset.id, intent.side);
+      await insertBeside(tile.dataset.id, parentId, intent.el.dataset.id, intent.side);
       return;
     }
-
-    pushUndo('布局调整', () => restoreSnapshot(snap));
     const size = cellSize();
     const board = boardOf(parentId);
     const cols = columnsFor(container, size);
@@ -716,8 +713,7 @@
 
     tile.addEventListener('dragstart', (e) => {
       if (state.layout === 'free') { e.preventDefault(); return; }
-      const siblings0 = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
-      state.drag = { id: item.id, parentId: ctx.parentId, isFolder, index: siblings0.indexOf(tile) };
+      state.drag = { id: item.id, parentId: ctx.parentId, isFolder };
       tile.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', item.id);
@@ -744,17 +740,14 @@
         pointer: { x: e.clientX, y: e.clientY }
       });
       clearIntent();
+      state.drag = null;
       if (!intent) { await moveNode(drag.id, ctx.parentId, -1); return; }
       if (intent.side === 'group') {
         if (intent.el.classList.contains('folder')) await moveNode(drag.id, intent.el.dataset.id, -1);
         else await groupTiles(drag.id, intent.el.dataset.id, ctx.parentId);
         return;
       }
-      const siblings = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
-      const at = siblings.indexOf(intent.el);
-      if (at < 0) { await moveNode(drag.id, ctx.parentId, -1); return; }
-      const raw = at + (intent.side === 'right' ? 1 : 0);
-      await moveNode(drag.id, ctx.parentId, resolveDropIndex(drag, ctx.parentId, raw));
+      await insertBeside(drag.id, ctx.parentId, intent.el.dataset.id, intent.side);
     });
 
     return tile;
@@ -868,12 +861,6 @@
   }
 
   /* ---------- 写操作 ---------- */
-  function resolveDropIndex(drag, parentId, targetIdx) {
-    let idx = targetIdx;
-    if (drag.parentId === parentId && typeof drag.index === 'number' && drag.index < targetIdx) idx -= 1;
-    return Math.max(idx, 0);
-  }
-
   // Chrome 的 bookmarks.move 不接受负 index，追加要显式算成目标子项数
   async function appendIndex(id, parentId) {
     let kids = [];
@@ -1893,6 +1880,6 @@
     setInterval(tick, 20000);
   }
 
-  window.__bd = { moveNode: moveNode, appendIndex: appendIndex, resolveDropIndex: resolveDropIndex, state: state };
+  window.__bd = { moveNode: moveNode, appendIndex: appendIndex, insertBeside: insertBeside, intentAt: intentAt, state: state };
   boot();
 })();
