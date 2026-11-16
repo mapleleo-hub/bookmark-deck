@@ -200,41 +200,30 @@
   }
 
   function pageMenu(x, y, group) {
-    const menu = $('menu');
-    menu.textContent = '';
-    const add = (label, fn, danger) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      if (danger) b.className = 'danger';
-      b.addEventListener('click', () => { hideMenu(); fn(); });
-      menu.appendChild(b);
-    };
+    showMenu(x, y, [
+      { label: '打开这一页', onClick: () => { state.activeId = group.id; state.query = ''; $('q').value = ''; render(); } },
+      { sep: true },
+      { label: '重命名', disabled: group.virtual, onClick: () => renamePage(group) },
+      { label: '上移', disabled: group.virtual, onClick: () => reorderPage(group, -1) },
+      { label: '下移', disabled: group.virtual, onClick: () => reorderPage(group, 1) },
+      { sep: true },
+      { label: '删除分页', danger: true, disabled: group.virtual, onClick: () => deletePage(group) }
+    ]);
+  }
 
-    if (!group.virtual) {
-      add('重命名分页', async () => {
-        const name = prompt('分页名称', group.title);
-        if (name === null) return;
-        const t = name.trim();
-        if (!t) return;
-        if (!hasAPI) { toast('演示模式不能保存'); return; }
-        await chrome.bookmarks.update(group.id, { title: t });
-      });
-      add('上移', () => reorderPage(group, -1));
-      add('下移', () => reorderPage(group, 1));
-      menu.appendChild(document.createElement('hr'));
-      add('删除分页及其书签', async () => {
-        if (!confirm('删除「' + group.title + '」以及里面的 ' + childrenOf(group).length + ' 项？会同步删除浏览器书签。')) return;
-        await removeNode(group.id);
-      }, true);
-    } else {
-      add('未分组页不能改名', () => {});
-    }
+  function renamePage(group) {
+    const name = prompt('分页名称', group.title);
+    if (name === null) return;
+    const t = name.trim();
+    if (!t || t === group.title) return;
+    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    chrome.bookmarks.update(group.id, { title: t });
+  }
 
-    menu.hidden = false;
-    const rect = menu.getBoundingClientRect();
-    menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + 'px';
-    menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + 'px';
+  function deletePage(group) {
+    const n = childrenOf(group).length;
+    if (!confirm('删除「' + group.title + '」以及里面的 ' + n + ' 项？会同步删除浏览器书签。')) return;
+    removeNode(group.id);
   }
 
   async function reorderPage(group, delta) {
@@ -514,33 +503,140 @@
   }
 
   /* ---------- 右键菜单 ---------- */
+  function menuNode(items, isSub) {
+    const box = document.createElement('div');
+    box.className = isSub ? 'sub' : 'group';
+    items.forEach((it) => {
+      if (it.sep) { box.appendChild(document.createElement('hr')); return; }
+      const row = document.createElement('div');
+      row.className = 'item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '');
+      row.setAttribute('role', 'menuitem');
+      const txt = document.createElement('span');
+      txt.className = 'txt';
+      txt.textContent = it.label;
+      row.appendChild(txt);
+
+      if (it.hint) {
+        const hint = document.createElement('span');
+        hint.className = 'meta';
+        hint.textContent = it.hint;
+        row.appendChild(hint);
+      }
+      if (it.submenu && it.submenu.length) {
+        const arrow = document.createElement('span');
+        arrow.className = 'arrow';
+        arrow.textContent = '›';
+        row.appendChild(arrow);
+        row.appendChild(menuNode(it.submenu, true));
+        row.addEventListener('click', (e) => {
+          if (it.disabled) return;
+          e.stopPropagation();
+          const wasOpen = row.classList.contains('open');
+          document.querySelectorAll('.menu .item.open').forEach((n) => n.classList.remove('open'));
+          if (!wasOpen) row.classList.add('open');
+        });
+      } else if (!it.disabled) {
+        row.addEventListener('click', () => { hideMenu(); it.onClick && it.onClick(); });
+      }
+      box.appendChild(row);
+    });
+    return box;
+  }
+
+  function showMenu(x, y, items) {
+    const host = $('menu');
+    host.textContent = '';
+    host.className = 'menu';
+    host.appendChild(menuNode(items, false));
+    host.hidden = false;
+
+    const w = host.offsetWidth;
+    const h = host.offsetHeight;
+    let left = x;
+    let top = y;
+    if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
+    if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+    host.style.left = left + 'px';
+    host.style.top = top + 'px';
+    if (left + w + 170 > window.innerWidth) host.classList.add('flip');
+  }
+
+  function moveTargets(item, ctx) {
+    return state.groups
+      .filter((g) => parentIdOf(g) !== ctx.parentId)
+      .map((g) => ({ label: g.title, onClick: () => moveNode(item.id, parentIdOf(g), -1) }));
+  }
+
   function openMenu(x, y, item, ctx) {
-    const menu = $('menu');
-    menu.textContent = '';
-    const add = (label, fn, danger) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      if (danger) b.className = 'danger';
-      b.addEventListener('click', () => { hideMenu(); fn(); });
-      menu.appendChild(b);
-    };
-    const sep = () => menu.appendChild(document.createElement('hr'));
-
     if (item.url) {
-      add('新标签页打开', () => window.open(item.url, '_blank', 'noopener'));
-      sep();
+      const targets = moveTargets(item, ctx);
+      showMenu(x, y, [
+        { label: '在新标签页打开', onClick: () => window.open(item.url, '_blank', 'noopener') },
+        { label: '在当前页打开', onClick: () => { location.href = item.url; } },
+        { label: '复制网址', onClick: () => copyText(item.url) },
+        { sep: true },
+        { label: '编辑', onClick: () => openForm(item, ctx) },
+        { label: '移动到分页', submenu: targets, disabled: !targets.length },
+        { sep: true },
+        { label: '删除书签', danger: true, onClick: () => deleteItem(item) }
+      ]);
+      return;
     }
-    add('编辑', () => openForm(item, ctx));
-    add(item.url ? '删除书签' : '删除文件夹', async () => {
-      if (!confirm('确定删除「' + (item.title || '未命名') + '」？此操作会同步删除浏览器书签。')) return;
-      await removeNode(item.id);
-    }, true);
 
-    menu.hidden = false;
-    const rect = menu.getBoundingClientRect();
-    menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + 'px';
-    menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + 'px';
+    const kids = (item.children || []).filter((c) => c.url);
+    const targets = moveTargets(item, ctx);
+    showMenu(x, y, [
+      { label: '打开', onClick: () => openFolder(item) },
+      { label: '在新标签页打开全部', hint: kids.length ? String(kids.length) : '', disabled: !kids.length, onClick: () => openAll(kids) },
+      { sep: true },
+      { label: '重命名', onClick: () => openForm(item, ctx) },
+      { label: '移动到分页', submenu: targets, disabled: !targets.length },
+      { sep: true },
+      { label: '删除文件夹', danger: true, onClick: () => deleteItem(item) }
+    ]);
+  }
+
+  function blankMenu(x, y) {
+    showMenu(x, y, [
+      { label: '添加书签', onClick: () => openForm(null, { parentId: defaultParentId() }) },
+      { label: '新建文件夹', onClick: addFolder },
+      { label: '新建分页', onClick: addPage },
+      { sep: true },
+      { label: '更换壁纸', onClick: () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; } }
+    ]);
+  }
+
+  function deleteItem(item) {
+    const label = item.title || '未命名';
+    if (!confirm('确定删除「' + label + '」？此操作会同步删除浏览器书签。')) return;
+    removeNode(item.id);
+  }
+
+  function openAll(nodes) {
+    const urls = nodes.map((n) => n.url).filter(Boolean);
+    if (!urls.length) { toast('这里面没有链接'); return; }
+    if (urls.length > 12 && !confirm('一次打开 ' + urls.length + ' 个标签页？')) return;
+    urls.forEach((u) => {
+      if (hasAPI && chrome.tabs && chrome.tabs.create) chrome.tabs.create({ url: u, active: false });
+      else window.open(u, '_blank', 'noopener');
+    });
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('已复制网址');
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); toast('已复制网址'); }
+      catch (e2) { toast('复制失败，请手动复制'); }
+      ta.remove();
+    }
   }
 
   function hideMenu() { $('menu').hidden = true; }
@@ -679,7 +775,19 @@
     });
   }
 
-  function toast(msg) { window.alert(msg); }
+  let toastTimer;
+  function toast(msg) {
+    const el = $('toast');
+    if (!el) { window.alert(msg); return; }
+    el.textContent = msg;
+    el.hidden = false;
+    requestAnimationFrame(() => el.classList.add('show'));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => { el.hidden = true; }, 200);
+    }, 2200);
+  }
 
   /* ---------- 时钟 ---------- */
   function tick() {
@@ -743,6 +851,11 @@
     $('form').addEventListener('submit', submitForm);
     document.addEventListener('click', (e) => {
       if (!$('menu').hidden && !$('menu').contains(e.target)) hideMenu();
+    });
+    document.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.tile, .page, .menu, .drawer, .modal, .fab, .top, .sheet-head')) return;
+      e.preventDefault();
+      blankMenu(e.clientX, e.clientY);
     });
 
     $('pickImage').addEventListener('click', () => $('fileImage').click());
