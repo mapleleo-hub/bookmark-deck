@@ -13,5 +13,5 @@
   var live = typeof chrome !== 'undefined' && chrome.bookmarks && chrome.runtime && chrome.runtime.id;
   if (live) return;
   window.__DEMO__ = true;
-  document.write('<script src="mock.js"><\/script>');
+  document.write('<script src="dev/mock.js"><\/script>');
 })();

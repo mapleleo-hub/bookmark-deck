@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Bookmark Deck",
+    "description": "扩展名称"
+  },
+  "appDesc": {
+    "message": "以浏览器书签为唯一数据源的 iTab 风格新标签页：左侧分页、图标网格、拖拽排序与建组，改动直接写回书签。",
+    "description": "扩展描述"
+  }
+}

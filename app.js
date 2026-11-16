@@ -102,8 +102,10 @@
   const colorOf = (s) => COLOR_SEED[Math.abs([...(s || '')].reduce((a, c) => a + c.charCodeAt(0), 0)) % COLOR_SEED.length];
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+  // Chrome/Edge 用内置 _favicon，读本地缓存不出网；Firefox 没有这个端点，回落到公共图标服务
+  const IS_FIREFOX = typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent || '');
   function faviconUrl(url, size) {
-    if (hasAPI && chrome.runtime.getURL) {
+    if (hasAPI && chrome.runtime.getURL && !IS_FIREFOX) {
       return chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(url) + '&size=' + (size || 64));
     }
     return 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(hostOf(url)) + '&sz=' + (size || 64);
@@ -781,6 +783,19 @@
         deleteItem(item);
       }
     };
+  }
+
+  /* ---------- 首次安装引导 ---------- */
+  function showIntro() {
+    const box = $('intro');
+    if (!box) return;
+    box.hidden = false;
+    $('introOk').focus();
+  }
+
+  function hideIntro() {
+    $('intro').hidden = true;
+    store.set('seenIntro', true);
   }
 
   /* ---------- 多选 ---------- */
@@ -1983,6 +1998,9 @@
       }
     });
 
+    $('introOk').addEventListener('click', hideIntro);
+    $('intro').addEventListener('click', (e) => { if (e.target === $('intro')) hideIntro(); });
+
     $('bulkMove').addEventListener('click', (e) => bulkMoveMenu(e.currentTarget));
     $('bulkDelete').addEventListener('click', bulkDelete);
     $('bulkClear').addEventListener('click', clearSelection);
@@ -2153,6 +2171,7 @@
       state.accent = params.get('accent');
       applyAccent();
     }
+    if (params.get('intro') === '1') showIntro();
     if (params.get('settings')) {
       renderSwatches();
       renderAccents();

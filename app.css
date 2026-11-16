@@ -732,6 +732,44 @@ html[data-theme="dark"] .purl mark { background: rgba(120, 156, 255, .32); }
   color: var(--text-dim);
 }
 
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(12, 16, 26, .34);
+  backdrop-filter: blur(4px);
+}
+
+.intro-box {
+  width: min(520px, 100%);
+  padding: 26px 26px 22px;
+  border-radius: 18px;
+  background: var(--menu-bg);
+  border: 1px solid var(--stroke);
+  box-shadow: 0 30px 70px rgba(10, 14, 24, .34);
+}
+
+.intro-box h2 { margin: 0 0 8px; font-size: 18px; letter-spacing: .01em; }
+.intro-box .intro-sub { margin: 0 0 16px; font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+.intro-list { margin: 0 0 20px; padding-left: 18px; font-size: 13px; line-height: 1.85; color: var(--text); }
+.intro-list b { font-weight: 600; }
+.intro-ok {
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.intro-ok:hover { background: var(--accent-strong); }
+
 .tile.selected .frame {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -907,4 +945,13 @@ button.ghost:hover { background: var(--card-hover); }
   .clock { font-size: 34px; }
   .tabs { padding: 6px 14px 0; }
   .grid { padding: 18px 14px 110px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

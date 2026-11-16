@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Bookmark Deck",
+    "description": "Extension name"
+  },
+  "appDesc": {
+    "message": "An iTab-style new tab page built directly on your browser bookmarks: page rail, icon grid, drag to reorder or group. Every change is written back to bookmarks.",
+    "description": "Extension description"
+  }
+}

@@ -1,2 +1,3 @@
-mock.js
+dev/mock.js
 *.log
+dist/

@@ -151,6 +151,19 @@
   </button>
 </div>
 
+<section class="intro" id="intro" hidden>
+  <div class="intro-box" role="dialog" aria-labelledby="introTitle">
+    <h2 id="introTitle">欢迎使用 Bookmark Deck</h2>
+    <p class="intro-sub">它直接读写浏览器书签，没有第二份数据，所以不存在两套内容不一致的问题。</p>
+    <ul class="intro-list">
+      <li><b>左侧分页</b>就是书签栏的一级文件夹。底部「新建分页」等于新建文件夹，删除分页也会连同里面的书签一起删。</li>
+      <li><b>拖到另一个图标上</b>会新建文件夹把两者收进去；<b>拖到它的左右两侧</b>只是调整顺序，两种情况提示框不一样。</li>
+      <li><b>Ctrl+K</b> 搜书签和标签，<b>Ctrl+Z</b> 撤销上一步，方向键在网格里移动，<b>Ctrl/Shift 点击</b>可以多选。</li>
+    </ul>
+    <button type="button" class="intro-ok" id="introOk">开始使用</button>
+  </div>
+</section>
+
 <div class="bulk" id="bulk" hidden>
   <span class="bulk-count" id="bulkCount"></span>
   <button type="button" id="bulkMove">移动到分页</button>
