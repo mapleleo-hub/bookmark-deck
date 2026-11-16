@@ -13,14 +13,14 @@
   };
 
   const state = {
-    tree: null,
     roots: [],
     rootIdx: 0,
     groups: [],
     activeId: null,
     query: '',
     size: 'm',
-    showEmpty: false,
+    showEmpty: true,
+    railCollapsed: false,
     wall: 'a',
     image: null,
     drag: null,
@@ -46,7 +46,7 @@
   };
 
   /* ---------- 工具 ---------- */
-  const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; } };
+  const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url || ''; } };
   const initial = (name, url) => (name || hostOf(url) || '?').trim().charAt(0).toUpperCase();
   const COLOR_SEED = ['#4f6bed', '#e0592a', '#1f8a70', '#9b5de5', '#d64545', '#2b7cd3', '#c08a1e', '#0f766e'];
   const colorOf = (s) => COLOR_SEED[Math.abs([...(s || '')].reduce((a, c) => a + c.charCodeAt(0), 0)) % COLOR_SEED.length];
@@ -78,6 +78,8 @@
   }
 
   /* ---------- 数据 ---------- */
+  function rootNode() { return state.roots[state.rootIdx]; }
+
   async function loadTree() {
     if (hasAPI) {
       const tree = await chrome.bookmarks.getTree();
@@ -90,64 +92,69 @@
   }
 
   function buildGroups() {
-    const root = state.roots[state.rootIdx];
+    const root = rootNode();
     if (!root) { state.groups = []; return; }
     const kids = root.children || [];
     const loose = kids.filter((c) => c.url);
     const groups = [];
     if (loose.length) groups.push({ id: root.id, title: '未分组', virtual: true, node: root });
-    kids.filter((c) => !c.url).forEach((f) => {
-      groups.push({ id: f.id, title: f.title || hostOf(f.url), virtual: false, node: f });
-    });
+    kids.filter((c) => !c.url).forEach((f) => groups.push({ id: f.id, title: f.title || hostOf(f.url), virtual: false, node: f }));
     state.groups = groups;
-    if (!groups.some((g) => g.id === state.activeId) || state.groups.every((g) => g.id !== state.activeId)) {
-      const firstFolder = groups.find((g) => !g.virtual && (g.node.children || []).some((c) => c.url || (c.children || []).length));
-      const firstAny = groups.find((g) => (g.node.children || []).length);
-      state.activeId = (firstFolder || firstAny || groups[0] || {}).id || null;
+    if (!groups.some((g) => g.id === state.activeId)) {
+      const firstFilled = groups.find((g) => !g.virtual && childrenOf(g).length);
+      const firstAny = groups.find((g) => childrenOf(g).length);
+      state.activeId = (firstFilled || firstAny || groups[0] || {}).id || null;
     }
   }
 
-  function currentGroup() {
-    return state.groups.find((g) => g.id === state.activeId) || null;
-  }
+  function currentGroup() { return state.groups.find((g) => g.id === state.activeId) || null; }
+  function childrenOf(group) { return group ? (group.node.children || []).filter((c) => (group.virtual ? c.url : true)) : []; }
+  function parentIdOf(group) { return group.virtual ? group.node.id : group.id; }
 
-  function childrenOf(group) {
-    if (!group) return [];
-    const node = group.node;
-    const kids = node.children || [];
-    return group.virtual ? kids.filter((c) => c.url) : kids;
-  }
-
-  /* ---------- 渲染 ---------- */
+  /* ---------- 左侧分页 ---------- */
   function visibleGroups() {
     if (state.showEmpty) return state.groups;
-    const filled = state.groups.filter((g) => childrenOf(g).length);
+    const filled = state.groups.filter((g) => childrenOf(g).length || g.id === state.activeId);
     return filled.length ? filled : state.groups;
   }
 
-  function renderTabs() {
-    const box = $('tabs');
+  function renderPages() {
+    const box = $('pages');
     box.textContent = '';
     visibleGroups().forEach((g) => {
       const btn = document.createElement('button');
-      btn.className = 'tab';
       btn.type = 'button';
+      btn.className = 'page';
       btn.dataset.gid = g.id;
       btn.setAttribute('aria-selected', String(g.id === state.activeId));
-      btn.textContent = g.title;
+
+      const av = document.createElement('span');
+      av.className = 'av';
+      av.textContent = (g.title || '?').trim().charAt(0).toUpperCase();
+      const c = colorOf(g.title);
+      av.style.background = c + '24';
+      av.style.color = c;
+
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = g.title || '未命名';
+
+      const cnt = document.createElement('span');
+      cnt.className = 'cnt';
       const n = childrenOf(g).length;
-      if (!n) btn.classList.add('empty');
-      if (n) {
-        const s = document.createElement('span');
-        s.className = 'n';
-        s.textContent = String(n);
-        btn.appendChild(s);
-      }
+      cnt.textContent = n ? String(n) : '';
+
+      btn.append(av, label, cnt);
+      btn.title = g.title;
       btn.addEventListener('click', () => {
         state.activeId = g.id;
         state.query = '';
         $('q').value = '';
         render();
+      });
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        pageMenu(e.clientX, e.clientY, g);
       });
       btn.addEventListener('dragover', (e) => {
         if (!state.drag) return;
@@ -160,14 +167,74 @@
         btn.classList.remove('drop-hint');
         const drag = state.drag;
         if (!drag) return;
-        const targetParent = g.virtual ? g.node.id : g.id;
-        if (drag.id === targetParent) return;
-        await moveNode(drag.id, targetParent, -1);
+        const target = parentIdOf(g);
+        if (drag.id === target) return;
+        await moveNode(drag.id, target, -1);
       });
       box.appendChild(btn);
     });
   }
 
+  function pageMenu(x, y, group) {
+    const menu = $('menu');
+    menu.textContent = '';
+    const add = (label, fn, danger) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      if (danger) b.className = 'danger';
+      b.addEventListener('click', () => { hideMenu(); fn(); });
+      menu.appendChild(b);
+    };
+
+    if (!group.virtual) {
+      add('重命名分页', async () => {
+        const name = prompt('分页名称', group.title);
+        if (name === null) return;
+        const t = name.trim();
+        if (!t) return;
+        if (!hasAPI) { toast('演示模式不能保存'); return; }
+        await chrome.bookmarks.update(group.id, { title: t });
+      });
+      add('上移', () => reorderPage(group, -1));
+      add('下移', () => reorderPage(group, 1));
+      menu.appendChild(document.createElement('hr'));
+      add('删除分页及其书签', async () => {
+        if (!confirm('删除「' + group.title + '」以及里面的 ' + childrenOf(group).length + ' 项？会同步删除浏览器书签。')) return;
+        await removeNode(group.id);
+      }, true);
+    } else {
+      add('未分组页不能改名', () => {});
+    }
+
+    menu.hidden = false;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = Math.min(x, window.innerWidth - rect.width - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - rect.height - 8) + 'px';
+  }
+
+  async function reorderPage(group, delta) {
+    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    const root = rootNode();
+    const folders = (root.children || []).filter((c) => !c.url);
+    const idx = folders.findIndex((f) => f.id === group.id);
+    const target = idx + delta;
+    if (idx < 0 || target < 0 || target >= folders.length) return;
+    await chrome.bookmarks.move(group.id, { parentId: root.id, index: target });
+  }
+
+  async function addPage() {
+    const name = prompt('新分页名称', '新分页');
+    if (name === null) return;
+    const title = name.trim() || '新分页';
+    if (!hasAPI) { toast('演示模式不能保存'); return; }
+    const created = await chrome.bookmarks.create({ parentId: rootNode().id, title });
+    await reloadNow();
+    state.activeId = created.id;
+    render();
+  }
+
+  /* ---------- 图标与文件夹 ---------- */
   function makeTile(item, ctx) {
     const isFolder = !item.url;
     const tile = document.createElement(isFolder ? 'div' : 'a');
@@ -177,10 +244,7 @@
     tile.draggable = true;
     tile.title = isFolder ? item.title : item.url;
 
-    if (!isFolder) {
-      tile.href = item.url;
-      tile.rel = 'noopener';
-    }
+    if (!isFolder) { tile.href = item.url; tile.rel = 'noopener'; }
 
     const frame = document.createElement('div');
     frame.className = 'frame';
@@ -195,10 +259,6 @@
         else if (kid) cell.textContent = '·';
         frame.appendChild(cell);
       }
-      const badge = document.createElement('span');
-      badge.className = 'count';
-      badge.textContent = String((item.children || []).length);
-      tile.appendChild(badge);
     } else {
       frame.appendChild(makeIcon(item.url, item.title, 64));
     }
@@ -206,11 +266,15 @@
     const label = document.createElement('span');
     label.className = 'name';
     label.textContent = item.title || hostOf(item.url) || '未命名';
+    if (isFolder) {
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = String((item.children || []).length);
+      label.appendChild(n);
+    }
     tile.append(frame, label);
 
-    if (isFolder) {
-      tile.addEventListener('click', (e) => { e.preventDefault(); openFolder(item); });
-    }
+    if (isFolder) tile.addEventListener('click', (e) => { e.preventDefault(); openFolder(item); });
 
     tile.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -239,7 +303,7 @@
       tile.classList.remove('drop-before');
       const drag = state.drag;
       if (!drag || drag.id === item.id) return;
-      if (isFolder && drag.id !== item.id) { await moveNode(drag.id, item.id, -1); return; }
+      if (isFolder) { await moveNode(drag.id, item.id, -1); return; }
       const siblings = Array.from(tile.parentElement.children).filter((n) => n.classList.contains('tile'));
       const idx = siblings.indexOf(tile);
       await moveNode(drag.id, ctx.parentId, idx < 0 ? -1 : idx);
@@ -251,29 +315,27 @@
   function renderGrid() {
     const grid = $('grid');
     grid.textContent = '';
+    grid.ondragover = null;
+    grid.ondrop = null;
 
-    if (state.query) {
-      renderSearch(grid);
-      return;
-    }
+    if (state.query) { renderSearch(grid); return; }
 
     const group = currentGroup();
     if (!group) {
-      grid.innerHTML = '<p class="empty">这个书签根目录是空的，点右下角加号新增一个。</p>';
+      grid.innerHTML = '<p class="empty">这个书签根目录是空的，点侧栏的新建分页开始。</p>';
       return;
     }
     const kids = childrenOf(group);
     if (!kids.length) {
-      grid.innerHTML = '<p class="empty">这个分组还没有书签，点右下角加号新增。</p>';
+      grid.innerHTML = '<p class="empty">这一页还没有书签，点右下角加号新增。</p>';
       return;
     }
-    const parentId = group.virtual ? group.node.id : group.id;
+    const parentId = parentIdOf(group);
     kids.forEach((k) => grid.appendChild(makeTile(k, { parentId, groupId: group.id })));
 
     grid.ondragover = (e) => { if (state.drag) e.preventDefault(); };
     grid.ondrop = async (e) => {
-      if (!state.drag) return;
-      if (e.target !== grid) return;
+      if (!state.drag || e.target !== grid) return;
       e.preventDefault();
       await moveNode(state.drag.id, parentId, -1);
     };
@@ -294,24 +356,26 @@
       return;
     }
     hits.forEach(({ item, group }) => {
-      const tile = makeTile(item, { parentId: group.virtual ? group.node.id : group.id, groupId: group.id });
-      const tag = document.createElement('span');
-      tag.className = 'count';
-      tag.textContent = group.title;
-      tile.appendChild(tag);
+      const tile = makeTile(item, { parentId: parentIdOf(group), groupId: group.id });
+      const nameEl = tile.querySelector('.name');
+      if (nameEl) {
+        const tag = document.createElement('span');
+        tag.className = 'n';
+        tag.textContent = group.title;
+        nameEl.appendChild(tag);
+      }
       grid.appendChild(tile);
     });
   }
 
   function render() {
-    renderTabs();
+    renderPages();
     renderGrid();
   }
 
   /* ---------- 文件夹弹层 ---------- */
   function openFolder(folder) {
-    if (!state.overlay.length) state.overlay = [folder];
-    else state.overlay.push(folder);
+    state.overlay.push(folder);
     renderOverlay();
     $('overlay').hidden = false;
   }
@@ -348,6 +412,13 @@
       return;
     }
     kids.forEach((k) => grid.appendChild(makeTile(k, { parentId: top.id, groupId: state.activeId })));
+
+    grid.ondragover = (e) => { if (state.drag) e.preventDefault(); };
+    grid.ondrop = async (e) => {
+      if (!state.drag || e.target !== grid) return;
+      e.preventDefault();
+      await moveNode(state.drag.id, top.id, -1);
+    };
   }
 
   /* ---------- 写操作 ---------- */
@@ -365,14 +436,16 @@
     await chrome.bookmarks.removeTree(id).catch(async () => { await chrome.bookmarks.remove(id); });
   }
 
-  const reload = debounce(async () => {
+  const reload = debounce(() => reloadNow(), 120);
+
+  async function reloadNow() {
     await loadTree();
     if (state.overlay.length) {
       state.overlay = [];
       $('overlay').hidden = true;
     }
     render();
-  }, 120);
+  }
 
   /* ---------- 右键菜单 ---------- */
   function openMenu(x, y, item, ctx) {
@@ -446,7 +519,7 @@
         if (editing.item.url) patch.url = finalUrl;
         await chrome.bookmarks.update(editing.item.id, patch);
       } else {
-        const parentId = editing && editing.ctx ? editing.ctx.parentId : defaultParentId();
+        const parentId = (editing && editing.ctx && editing.ctx.parentId) || defaultParentId();
         await chrome.bookmarks.create({ parentId, title: name, url: finalUrl });
       }
       $('modal').hidden = true;
@@ -459,8 +532,7 @@
   function defaultParentId() {
     if (state.overlay.length) return state.overlay[state.overlay.length - 1].id;
     const g = currentGroup();
-    if (!g) return state.roots[state.rootIdx].id;
-    return g.virtual ? g.node.id : g.id;
+    return g ? parentIdOf(g) : (rootNode() ? rootNode().id : '1');
   }
 
   /* ---------- 外观 ---------- */
@@ -475,6 +547,8 @@
       document.documentElement.dataset.theme = w.theme;
     }
     document.documentElement.dataset.size = state.size;
+    $('rail').classList.toggle('collapsed', state.railCollapsed);
+    $('railToggle').textContent = state.railCollapsed ? '›' : '‹';
   }
 
   function detectTheme(dataUrl) {
@@ -489,8 +563,7 @@
         const d = ctx.getImageData(0, 0, w, h).data;
         let sum = 0;
         for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-        const avg = sum / (d.length / 4);
-        document.documentElement.dataset.theme = avg < 128 ? 'dark' : 'light';
+        document.documentElement.dataset.theme = (sum / (d.length / 4)) < 128 ? 'dark' : 'light';
       } catch (e) {
         document.documentElement.dataset.theme = 'light';
       }
@@ -577,6 +650,13 @@
       }
     });
 
+    $('addPage').addEventListener('click', addPage);
+    $('railToggle').addEventListener('click', () => {
+      state.railCollapsed = !state.railCollapsed;
+      store.set('railCollapsed', state.railCollapsed);
+      applyWall();
+    });
+
     $('addBtn').addEventListener('click', () => openForm(null, { parentId: defaultParentId() }));
     $('gearBtn').addEventListener('click', () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; });
     $('closeDrawer').addEventListener('click', () => { $('drawer').hidden = true; });
@@ -635,34 +715,39 @@
 
   /* ---------- 启动 ---------- */
   async function boot() {
-    const [wall, image, size, rootIdx] = await Promise.all([
+    const prefs = await Promise.all([
       store.get('wall', 'a'),
       store.get('image', null),
       store.get('size', 'm'),
-      store.get('rootIdx', 0)
+      store.get('rootIdx', 0),
+      store.get('showEmpty', true),
+      store.get('railCollapsed', false)
     ]);
-    state.wall = wall || 'a';
-    state.image = image || null;
-    state.size = size || 'm';
-    state.rootIdx = Number(rootIdx) || 0;
-    state.showEmpty = !!(await store.get('showEmpty', false));
+    state.wall = prefs[0] || 'a';
+    state.image = prefs[1] || null;
+    state.size = prefs[2] || 'm';
+    state.rootIdx = Number(prefs[3]) || 0;
+    state.showEmpty = prefs[4] !== false;
+    state.railCollapsed = prefs[5] === true;
     $('showEmpty').checked = state.showEmpty;
 
     await loadTree();
-    const wanted = new URLSearchParams(location.search).get('g');
-    if (wanted && state.groups.some((g) => g.id === wanted || g.title === wanted)) {
+    const params = new URLSearchParams(location.search);
+    if (params.get('rail') === '0') state.railCollapsed = true;
+    const wanted = params.get('g');
+    if (wanted) {
       const hit = state.groups.find((g) => g.id === wanted || g.title === wanted);
-      state.activeId = hit.id;
+      if (hit) state.activeId = hit.id;
     }
+
     applyWall();
     renderSwatches();
     renderRootSeg();
     render();
     wire();
+    Array.from($('sizeSeg').children).forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.size === state.size)));
     tick();
-    setInterval(tick, 1000 * 20);
-
-    if (!hasAPI) document.body.dataset.demo = '1';
+    setInterval(tick, 20000);
   }
 
   boot();
