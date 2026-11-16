@@ -46,6 +46,9 @@
 # 冒烟测试：用无头 Chrome 跑真实页面结构，覆盖渲染、拖拽插入、建组、搜索、键盘、多选
 node tests/run.mjs
 
+# 容量验证：造 3200 条书签，确认 8 个分页、当前页 400 个图标能正常渲染
+node tests/stress.mjs
+
 # 生成发布包（只含必要文件，约 120KB）
 python scripts/pack.py
 ```

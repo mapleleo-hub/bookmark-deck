@@ -5,6 +5,7 @@
 - 工程化（0.2.0）：`node tests/run.mjs` 跑 7 项冒烟（渲染、相邻插入、覆盖建组、搜索高亮、键盘导航、多选、Esc），`python scripts/pack.py` 产 120KB 发布包；manifest 有图标、中英文案、background service worker、`browser_specific_settings`。
 - 键盘与多选：方向键按几何位置移动焦点（roving tabindex），Home/End 首尾，F2 改名，Delete 删除；Ctrl/Cmd 点切换、Shift 点范围、Shift+方向累积，底部批量条支持整批移动与删除（一次撤销恢复全部）。
 - 引导与无障碍：`?intro=1` 打开引导面板，安装时 background 自动打开一次；尊重 `prefers-reduced-motion`。
+- 容量：`node tests/stress.mjs` 用 3200 条（8 分组 × 400）验证分页与当前页 400 个图标渲染正常。headless 的虚拟时间不可用于报告首屏耗时，所以脚本只做"能跑通"的断言。
 - 存储健壮性：偏好按名称读取（`store.getAll`），写入失败可见；壁纸压到 1920/JPEG85 再存。
 
 - MV3 扩展可用：新标签页以 `chrome.bookmarks` 为唯一数据源，左侧分页 = 书签栏一级文件夹，图标 = 书签条目，文件夹卡片 = 子文件夹。
