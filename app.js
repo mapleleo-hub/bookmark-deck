@@ -12,6 +12,16 @@
     e: { css: 'linear-gradient(150deg,#f6eef5 0%,#e7e9f8 55%,#dde9f6 100%)', theme: 'light' }
   };
 
+  const ENGINES = [
+    { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=%s' },
+    { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q=%s' },
+    { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd=%s' },
+    { id: 'ddg', name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=%s' },
+    { id: 'sogou', name: '搜狗', url: 'https://www.sogou.com/web?query=%s' },
+    { id: 'zhihu', name: '知乎', url: 'https://www.zhihu.com/search?type=content&q=%s' },
+    { id: 'bili', name: '哔哩哔哩', url: 'https://search.bilibili.com/all?keyword=%s' }
+  ];
+
   const state = {
     roots: [],
     rootIdx: 0,
@@ -25,6 +35,9 @@
     image: null,
     drag: null,
     editing: null,
+    formMode: 'bookmark',
+    engine: 'google',
+    customs: [],
     overlay: []
   };
 
@@ -612,6 +625,79 @@
 
   function hideMenu() { $('menu').hidden = true; }
 
+  /* ---------- 搜索源 ---------- */
+  function allSources() {
+    return [{ id: 'local', name: '书签与标签' }].concat(ENGINES).concat(state.customs);
+  }
+
+  function currentSource() {
+    return allSources().find((s) => s.id === state.engine) || ENGINES[0];
+  }
+
+  function renderEngine() {
+    const src = currentSource();
+    $('engineName').textContent = src.name;
+    $('q').placeholder = state.engine === 'local' ? '搜索书签与标签，Ctrl+K' : '在 ' + src.name + ' 搜索，Ctrl+K';
+  }
+
+  function setEngine(id) {
+    state.engine = id;
+    store.set('engine', id);
+    renderEngine();
+    if (id === 'local') {
+      if ($('q').value.trim()) openInlineFinder();
+    } else {
+      closeFinder();
+    }
+  }
+
+  function sourceMenu() {
+    const rect = $('engineBtn').getBoundingClientRect();
+    const items = [{ label: '书签与标签', hint: state.engine === 'local' ? '当前' : '', onClick: () => setEngine('local') }, { sep: true }];
+    ENGINES.forEach((e) => items.push({ label: e.name, hint: state.engine === e.id ? '当前' : '', onClick: () => setEngine(e.id) }));
+    if (state.customs.length) {
+      items.push({ sep: true });
+      state.customs.forEach((e) => items.push({
+        label: e.name,
+        hint: state.engine === e.id ? '当前' : '',
+        submenu: [
+          { label: '使用', onClick: () => setEngine(e.id) },
+          { label: '删除', danger: true, onClick: () => removeEngine(e.id) }
+        ]
+      }));
+    }
+    items.push({ sep: true });
+    items.push({ label: '添加自定义搜索引擎…', onClick: addEngineForm });
+    showMenu(rect.left, rect.bottom + 6, items);
+  }
+
+  function removeEngine(id) {
+    state.customs = state.customs.filter((e) => e.id !== id);
+    store.set('customs', state.customs);
+    if (state.engine === id) setEngine('google');
+    else renderEngine();
+  }
+
+  function addEngineForm() {
+    state.formMode = 'engine';
+    $('formTitle').textContent = '添加搜索引擎';
+    $('fName').value = '';
+    $('fUrl').value = '';
+    $('fUrl').placeholder = 'https://example.com/search?q=%s';
+    $('fUrl').parentElement.hidden = false;
+    $('fErr').hidden = true;
+    $('modal').hidden = false;
+    $('fName').focus();
+  }
+
+  function runEngineSearch() {
+    const q = $('q').value.trim();
+    if (!q) return;
+    const src = currentSource();
+    if (!src.url) return;
+    location.href = src.url.replace('%s', encodeURIComponent(q));
+  }
+
   /* ---------- 统一搜索：标签与书签 ---------- */
   const finder = { items: [], index: 0, where: null, tabs: [], seq: 0 };
 
@@ -803,6 +889,7 @@
 
   /* ---------- 表单 ---------- */
   function openForm(item, ctx) {
+    state.formMode = 'bookmark';
     state.editing = { item, ctx };
     const isEdit = !!item;
     $('formTitle').textContent = isEdit ? (item.url ? '编辑书签' : '重命名文件夹') : '添加书签';
@@ -821,6 +908,20 @@
     const editing = state.editing;
     const err = $('fErr');
     err.hidden = true;
+
+    if (state.formMode === 'engine') {
+      if (!name) { err.textContent = '名称不能为空'; err.hidden = false; return; }
+      if (!url || url.indexOf('%s') < 0) { err.textContent = '地址里要用 %s 表示关键词位置'; err.hidden = false; return; }
+      if (!/^https?:\/\//i.test(url)) { err.textContent = '地址需要以 http 开头'; err.hidden = false; return; }
+      const id = 'c' + Date.now();
+      state.customs.push({ id: id, name: name, url: url });
+      store.set('customs', state.customs);
+      $('modal').hidden = true;
+      state.formMode = 'bookmark';
+      setEngine(id);
+      toast('已添加并切换');
+      return;
+    }
 
     if (!name) { err.textContent = '名称不能为空'; err.hidden = false; return; }
     if (!editing || !editing.item || editing.item.url) {
@@ -963,9 +1064,19 @@
 
   /* ---------- 事件 ---------- */
   function wire() {
-    $('q').addEventListener('focus', () => { openInlineFinder(); });
-    $('q').addEventListener('input', () => { openInlineFinder(); });
-    $('q').addEventListener('keydown', finderKey);
+    $('q').addEventListener('focus', () => {
+      if (state.engine === 'local') openInlineFinder();
+    });
+    $('q').addEventListener('input', () => {
+      if (state.engine === 'local') openInlineFinder();
+      else closeFinder();
+    });
+    $('q').addEventListener('keydown', (e) => {
+      if (state.engine === 'local') { finderKey(e); return; }
+      if (e.key === 'Enter') { e.preventDefault(); runEngineSearch(); }
+      else if (e.key === 'Escape') { e.preventDefault(); $('q').value = ''; }
+    });
+    $('engineBtn').addEventListener('click', (e) => { e.stopPropagation(); sourceMenu(); });
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'r' && hasAPI) {
         e.preventDefault();
@@ -1080,7 +1191,9 @@
       store.get('size', 'm'),
       store.get('rootIdx', 0),
       store.get('showEmpty', true),
-      store.get('railCollapsed', false)
+      store.get('railCollapsed', false),
+      store.get('engine', 'google'),
+      store.get('customs', [])
     ]);
     state.wall = prefs[0] || 'a';
     state.image = prefs[1] || null;
@@ -1088,6 +1201,8 @@
     state.rootIdx = Number(prefs[3]) || 0;
     state.showEmpty = prefs[4] !== false;
     state.railCollapsed = prefs[5] === true;
+    state.engine = prefs[6] || 'google';
+    state.customs = Array.isArray(prefs[7]) ? prefs[7] : [];
     $('showEmpty').checked = state.showEmpty;
 
     await loadTree();
@@ -1099,6 +1214,7 @@
       if (hit) state.activeId = hit.id;
     }
     if (params.get('palette')) openPalette();
+    if (params.get('engine')) setEngine(params.get('engine'));
     const openIds = (params.get('open') || '').split(',').filter(Boolean);
     if (openIds.length) {
       const path = openIds.map((id) => findNode(id, state.roots));
@@ -1112,6 +1228,7 @@
     applyWall();
     renderSwatches();
     renderRootSeg();
+    renderEngine();
     render();
     wire();
     Array.from($('sizeSeg').children).forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.size === state.size)));
