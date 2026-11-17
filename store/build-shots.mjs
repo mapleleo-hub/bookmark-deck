@@ -163,6 +163,53 @@ const scenarios = [
       document.getElementById('gearBtn').click();
       await new Promise(r => setTimeout(r, 700));
     `
+  },
+  {
+    file: 'preview-menu',
+    root: true,
+    wait: 3200,
+    action: `
+      const pages = [...document.querySelectorAll('#pages .page')];
+      pages[1] && pages[1].click();
+      await new Promise(r => setTimeout(r, 1400));
+      const t = document.querySelector('#grid .tile');
+      const r = t.getBoundingClientRect();
+      t.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: r.left + r.width / 2, clientY: r.top + r.height / 2
+      }));
+      await new Promise(r => setTimeout(r, 800));
+    `
+  },
+  {
+    file: 'preview-free',
+    root: true,
+    wait: 3400,
+    action: `
+      const pages = [...document.querySelectorAll('#pages .page')];
+      pages[1] && pages[1].click();
+      await new Promise(r => setTimeout(r, 1400));
+      document.getElementById('gearBtn').click();
+      await new Promise(r => setTimeout(r, 400));
+      const free = document.querySelector('[data-layout="free"]');
+      free && free.click();
+      await new Promise(r => setTimeout(r, 500));
+      document.getElementById('closeDrawer').click();
+      await new Promise(r => setTimeout(r, 500));
+      const grid = document.getElementById('grid');
+      const gr = grid.getBoundingClientRect();
+      const drag = (el, x, y) => {
+        const dt = new DataTransfer();
+        el.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        grid.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
+        grid.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
+      };
+      const tiles = [...grid.querySelectorAll('.tile')];
+      if (tiles[0]) { drag(tiles[0], gr.left + 132, gr.top + 300); await new Promise(r => setTimeout(r, 700)); }
+      const t2 = [...grid.querySelectorAll('.tile')][1];
+      if (t2) { drag(t2, gr.left + 300, gr.top + 210); await new Promise(r => setTimeout(r, 700)); }
+      await new Promise(r => setTimeout(r, 800));
+    `
   }
 ];
 
@@ -195,7 +242,9 @@ const scenarios = [
       const shot = await cdp.send('Page.captureScreenshot', {
         format: 'png', captureBeyondViewport: false, fromSurface: true
       });
-      const out = join(shotDir, `${sc.file}-${lang}.png`);
+      const out = sc.root
+        ? join(root, `${sc.file}.png`)
+        : join(shotDir, `${sc.file}-${lang}.png`);
       writeFileSync(out, Buffer.from(shot.data, 'base64'));
       console.log('wrote', out);
     }
