@@ -300,7 +300,7 @@
       ok('拖到面包屑移出到上层', false, '页面上没有文件夹');
     }
 
-    // 选择模式的入口在左侧栏
+    // 选择模式的入口在右下角按钮组
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await wait(250);
     const sb = document.getElementById('selectBtn');
@@ -314,14 +314,14 @@
       await wait(150);
       const picked = document.querySelectorAll('.tile.selected').length;
       const cnt = document.getElementById('selectCount').textContent;
-      ok('侧栏按钮进入选择模式', inSel && picked === 2 && cnt === '2',
+      ok('右下角按钮进入选择模式', inSel && picked === 2 && cnt === '2',
         '进入=' + inSel + ' 选中=' + picked + ' 计数=' + cnt);
       sb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       await wait(150);
       const out = !document.body.classList.contains('selecting') && document.querySelectorAll('.tile.selected').length === 0;
       ok('再点一次退出选择模式', out, '退出后选中=' + document.querySelectorAll('.tile.selected').length);
     } else {
-      ok('侧栏按钮进入选择模式', false, '图标不足 2 个');
+      ok('右下角按钮进入选择模式', false, '图标不足 2 个');
     }
 
         // 书签来源切换在左侧栏

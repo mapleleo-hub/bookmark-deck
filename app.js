@@ -1070,14 +1070,15 @@
     if (!btn) return;
     btn.setAttribute('aria-pressed', String(state.selecting));
     btn.classList.toggle('on', state.selecting);
-    const label = $('selectLabel') || btn.querySelector('.label');
-    if (label) {
-      const key = state.selecting ? 'rail.selectDone' : 'rail.select';
-      label.dataset.i18n = key;
-      label.textContent = t(key);
-    }
+    const key = state.selecting ? 'rail.selectExit' : 'rail.selectTitle';
+    btn.dataset.i18nTitle = key;
+    btn.title = t(key);
     const cnt = $('selectCount');
-    if (cnt) cnt.textContent = state.selecting && state.selection.size ? String(state.selection.size) : '';
+    if (cnt) {
+      const n = state.selecting && state.selection.size ? String(state.selection.size) : '';
+      cnt.textContent = n;
+      cnt.hidden = !n;
+    }
   }
 
   function toggleSelectMode() {
@@ -2400,6 +2401,8 @@
   function bookmarkSourceTitle(root, i) {
     return (root && root.title) || (t('settings.rootPrefix') + ' ' + (i + 1));
   }
+  // 书签来源（书签栏 / 其他书签 / 移动设备书签）就是左侧栏顶部那行标题，
+  // 点它开菜单换源；折叠时只留首字
   function renderSourceBtn() {
     const btn = $('railSource');
     if (!btn) return;
@@ -2410,7 +2413,8 @@
     if (av) av.textContent = (title.trim().charAt(0) || '·').toUpperCase();
     if (label) label.textContent = title;
     btn.title = t('rail.sourceTitle', { name: title });
-    btn.hidden = state.roots.length < 2;
+    // 只有一个根目录时没得切，保留展示但不当按钮用
+    btn.setAttribute('aria-disabled', String(state.roots.length < 2));
   }
   function bookmarkSourceMenu(anchor) {
     if (state.roots.length < 2) return;
