@@ -1,10 +1,12 @@
 # Bookmark Deck
 
-用浏览器书签本身当数据源的 iTab 风格新标签页。左侧竖排分页，每页里是图标网格与文件夹卡片，拖拽排序直接调用 `chrome.bookmarks` 写回，不存在"两边同步"的问题，因为只有一份数据。
+Chrome 新标签页，把浏览器书签本身当数据源。左侧竖排分页，每页是图标网格与文件夹卡片，拖拽排序直接调用 `chrome.bookmarks` 写回书签本体。
 
 ![预览](preview.png)
 
-## 装
+和其他新标签页扩展的区别：它们通常把书签复制一份进自己的存储，浏览器里改了一边，另一边不知道，于是要做同步。这里只有一份数据，改哪边都是同一份。没有账号，不联网，权限只到书签与标签读取，装完约 120KB，零第三方依赖。
+
+## 安装 / Install
 
 1. 打开 `chrome://extensions`（Edge 用 `edge://extensions`）
 2. 右上角打开「开发者模式」
@@ -13,7 +15,7 @@
 
 不需要构建，没有第三方依赖。后台只有一个十几行的 service worker，负责工具栏图标点击与首次安装时打开引导。
 
-## 用法
+## 用法 / Usage
 
 | 操作 | 说明 |
 |---|---|
@@ -48,35 +50,7 @@
 
 层级映射：书签栏的一级文件夹 = 左侧分页；分页里的书签 = 图标；分页里的子文件夹 = 文件夹卡片，点开继续下钻。层级不限深度，`项目 / aigc / 文` 这种三层结构点两下就能到底，面包屑可以逐级回退。
 
-## 开发
-
-```bash
-# 冒烟测试：用无头 Chrome 跑真实页面结构，覆盖渲染、拖拽插入、建组、搜索、键盘、多选
-node tests/run.mjs
-
-# 容量验证：造 3200 条书签，确认 8 个分页、当前页 400 个图标能正常渲染
-node tests/stress.mjs
-
-# 生成发布包（只含必要文件，约 120KB）
-python scripts/pack.py
-```
-
-测试用的桩在 `tests/stub.js`，它按真实 Chrome 的行为模拟 `bookmarks.move`（同父级、目标索引大于源索引时内部减一）。改拖拽逻辑时这个细节不能漏，否则测试会假绿。
-
-演示模式用的书签快照是 `dev/mock.js`，由本机 Chrome 的 `Bookmarks` 文件导出，不进仓库也不进发布包。没有它时 `node tests/run.mjs` 会提示。
-
-## 改了代码怎么生效
-
-不需要重新安装，也不需要删掉再加载。扩展目录就是源码目录，文件已经在位，缺的只是让 Chrome 重新读一遍：
-
-1. 打开扩展页，点当前扩展卡片上的刷新图标（⟳）；或者在新标签页按 `Ctrl+Alt+R`（扩展自带的重载快捷键）
-2. 按 F5 刷新新标签页
-
-只有改了 `manifest.json` 里的权限或名称，Chrome 才会提示要重新启用一次。日常改 `app.js` / `app.css` 走上面两步就够。
-
-如果想连这一步都省掉，装一个自动重载类扩展（如 Extensions Reloader），它替你监听文件变化并点那个刷新按钮。
-
-## 右键菜单
+## 右键菜单 / Context menu
 
 ![菜单](preview-menu.png)
 
@@ -89,7 +63,7 @@ python scripts/pack.py
 
 子菜单会列出全部分页，当前所在的页自动排除；分页太多时子菜单自身滚动。菜单贴近窗口右边缘时会自动向左展开。
 
-## 搜索
+## 搜索 / Search
 
 ![搜索源](preview-sources.png)
 
@@ -103,7 +77,7 @@ python scripts/pack.py
 
 自定义引擎在菜单里带子菜单，可以「使用」或「删除」。选择结果写入 `chrome.storage.local`，换页不丢。
 
-### 书签与标签
+### 书签与标签 / Bookmarks and tabs
 
 ![搜索](preview-search.png)
 
@@ -122,7 +96,7 @@ python scripts/pack.py
 
 标签搜索需要 `tabs` 权限（读取标题和网址），首次升级时 Chrome 会提示重新启用一次。
 
-## 自由摆放
+## 自由布局 / Free layout
 
 ![自由摆放](preview-free.png)
 
@@ -148,7 +122,7 @@ python scripts/pack.py
 
 坐标存的是行列号而不是像素，所以改图标大小后布局不会乱。书签的增删改仍以浏览器书签为准，坐标只是视图层，缺失时自动补到空位。
 
-## 设置
+## 设置 / Settings
 
 ![设置](preview-settings.png)
 
@@ -162,7 +136,7 @@ python scripts/pack.py
 | 布局 | 网格 / 自由摆放 |
 | 图标大小 | 小 / 中 / 大 |
 
-## 撤销
+## 撤销 / Undo
 
 `Ctrl+Z` 或空白处右键「撤销上一步」。栈最多 40 步，覆盖：
 
@@ -177,11 +151,11 @@ python scripts/pack.py
 
 撤销栈在内存里，刷新页面后清空。撤销过程中不会再记录新的撤销项。
 
-## 界面语言
+## 界面语言 / UI language
 
 中英两套文案，按浏览器界面语言自动选择，也可以在地址后加 `?lang=en` 或 `?lang=zh` 强制。文案集中在 `i18n.js` 的字典里，新增文案要同时补 `zh` 与 `en`，缺翻译时回退中文并打一条 warn。
 
-## 插件结构
+## 插件结构 / Plugin structure
 
 `core.js` 是一个很小的插件内核：注册、依赖顺序、事件总线、命令表。目前 `i18n` 是唯一的独立插件，其余功能仍在 `app.js` 里，但已经通过 `Deck.host` 暴露了 `state / store / t / toast / reload / render / findNode` 等能力。
 
@@ -199,7 +173,7 @@ Deck.register({
 
 需要说明的是，MV3 禁止远程代码，插件只能随包分发，做不到「从商店动态安装插件」。所以这里的插件化解决的是模块边界与依赖顺序，不是运行时扩展生态。
 
-## 跨浏览器
+## 跨浏览器 / Cross-browser
 
 | 浏览器 | 状态 |
 |---|---|
@@ -207,11 +181,11 @@ Deck.register({
 | Firefox | `browser_specific_settings` 已写进 manifest，图标改走公共 favicon 服务（Firefox 没有 `_favicon`）。没有在 CI 里验证 |
 | Safari | 未适配，需要 Xcode 封装 |
 
-## 隐私
+## 隐私 / Privacy
 
 不联网、不上传，所有设置存在本机 `chrome.storage.local`。细节见 [PRIVACY.md](PRIVACY.md)。
 
-## 设计约束
+## 设计约束 / Design constraints
 
 - **建组只能靠位置区分，没有第二个确认步骤。** 网格里指针略偏就会从建组变成插入，反过来也一样；蓝框和竖条是唯一的反馈，看清再松手。
 - **书签顺序会被布局改写。** 自由摆放里拖一次图标，实际会调用 `bookmarks.move` 把该文件夹的子项顺序重排成视觉顺序，这是双向映射的代价，也意味着浏览器书签管理器里的顺序不再独立。
@@ -221,7 +195,7 @@ Deck.register({
 - **分页不能独立于书签存在。** 新建分页就是建一个空文件夹，删分页就是删文件夹连同里面的书签，浏览器书签管理器里会同步变化。
 - **改动即时生效。** 监听 `onCreated / onRemoved / onChanged / onMoved`，在 Chrome 书签管理器里的修改会立刻反映过来。
 
-## 文件
+## 文件 / Files
 
 ```
 manifest.json   MV3，权限只有 bookmarks / favicon / storage
@@ -234,8 +208,44 @@ preview.png     截图
 
 直接用浏览器打开 `newtab.html` 会进演示模式（读 `mock.js`），可以不上扩展先看效果。
 
-## 已知边界
+## 已知边界 / Known limits
 
 - 仅 Chromium（Chrome / Edge / Brave），Firefox 的 `chrome.bookmarks` 命名空间不同。
 - 图标来自 `_favicon` 内置 API，离线时回落到首字母色块。
 - 搜索范围是当前选中的书签根，不跨根。
+
+## 开发 / Development
+
+```bash
+# 冒烟测试：用无头 Chrome 跑真实页面结构，覆盖渲染、拖拽插入、建组、搜索、键盘、多选
+node tests/run.mjs
+
+# 容量验证：造 3200 条书签，确认 8 个分页、当前页 400 个图标能正常渲染
+node tests/stress.mjs
+
+# 生成发布包（只含必要文件，约 120KB）
+python scripts/pack.py
+```
+
+测试用的桩在 `tests/stub.js`，它按真实 Chrome 的行为模拟 `bookmarks.move`（同父级、目标索引大于源索引时内部减一）。改拖拽逻辑时这个细节不能漏，否则测试会假绿。
+
+演示模式用的书签快照是 `dev/mock.js`，由本机 Chrome 的 `Bookmarks` 文件导出，不进仓库也不进发布包。没有它时 `node tests/run.mjs` 会提示。
+
+## 改完代码怎么生效 / Reload after edits
+
+不需要重新安装，也不需要删掉再加载。扩展目录就是源码目录，文件已经在位，缺的只是让 Chrome 重新读一遍：
+
+1. 打开扩展页，点当前扩展卡片上的刷新图标（⟳）；或者在新标签页按 `Ctrl+Alt+R`（扩展自带的重载快捷键）
+2. 按 F5 刷新新标签页
+
+只有改了 `manifest.json` 里的权限或名称，Chrome 才会提示要重新启用一次。日常改 `app.js` / `app.css` 走上面两步就够。
+
+如果想连这一步都省掉，装一个自动重载类扩展（如 Extensions Reloader），它替你监听文件变化并点那个刷新按钮。
+
+## 贡献 / Contributing
+
+发现问题或想要某个用法，开 issue 说明场景。改代码前先确认 `node tests/run.mjs` 能跑通，提交时保持测试通过。没有构建步骤，也没有 lint 门槛。
+
+## 许可 / License
+
+MIT，见 [LICENSE](LICENSE)。
