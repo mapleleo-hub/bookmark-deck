@@ -308,6 +308,26 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
   color: var(--text-dim);
 }
 
+/* 书签来源：位于分页列表上方的切换入口 */
+.page.source {
+  color: var(--text-dim);
+  min-height: 32px;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+}
+.page.source:hover { background: var(--card-hover); color: var(--text); }
+.page.source .av {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+}
+.page.source .label { font-size: 12px; }
+.page.source .chev { flex: 0 0 auto; opacity: .5; }
+.page.source[hidden] { display: none; }
+
 /* 选择书签：平时是低调的入口，进入选择模式后整条高亮并变成「完成」 */
 .page.select { color: var(--text-dim); }
 .page.select .av { color: var(--text-dim); }
@@ -344,6 +364,7 @@ html[data-theme="dark"] .pnote { background: rgba(217, 69, 63, .18); color: #ff9
 .rail.collapsed .rail-brand { justify-content: center; padding: 4px 0 12px; }
 .rail.collapsed .rail-brand { justify-content: center; gap: 0; }
 .rail.collapsed .rail-brand .dot { display: none; }
+.rail.collapsed .page.source .chev { display: none; }
 
 .main {
   flex: 1 1 auto;

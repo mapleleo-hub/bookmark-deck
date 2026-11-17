@@ -324,6 +324,24 @@
       ok('侧栏按钮进入选择模式', false, '图标不足 2 个');
     }
 
+        // 书签来源切换在左侧栏
+    const rs = document.getElementById('railSource');
+    const label0 = document.getElementById('sourceLabel').textContent;
+    rs.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(200);
+    const menu = document.getElementById('menu');
+    const opened = !menu.hidden;
+    const rows = Array.from(menu.querySelectorAll('.item .txt')).map((n) => n.textContent);
+    const second = menu.querySelectorAll('.item')[1];
+    if (opened && second) {
+      second.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await wait(350);
+    }
+    const label1 = document.getElementById('sourceLabel').textContent;
+    const pagesNow = document.querySelectorAll('#pages .page').length;
+    ok('侧栏切换书签来源', opened && label0 === '书签栏' && label1 !== label0 && pagesNow === 0,
+      '菜单=' + rows.join('/') + ' ' + label0 + ' -> ' + label1 + ' 分页数=' + pagesNow);
+
     const box = document.createElement('pre');
     box.id = 'result';
     box.textContent = JSON.stringify(results);
@@ -333,7 +351,8 @@
       results.push({ name: '用例执行异常', pass: false, detail: String(err && err.stack || err) });
       // 出错也把已有结果交出去，别让整轮测试变成空白
       try {
-        const box = document.createElement('pre');
+
+    const box = document.createElement('pre');
         box.id = 'result';
         box.textContent = JSON.stringify(results);
         document.body.appendChild(box);

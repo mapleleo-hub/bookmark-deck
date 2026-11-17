@@ -1780,7 +1780,7 @@
       { label: t('menu.newFolder'), onClick: addFolder },
       { label: t('menu.newPage'), onClick: addPage },
       { sep: true },
-      { label: t('menu.changeWallpaper'), onClick: () => { renderSwatches(); renderRootSeg(); $('drawer').hidden = false; } }
+      { label: t('menu.changeWallpaper'), onClick: () => { renderSwatches(); renderSourceBtn(); $('drawer').hidden = false; } }
     ].concat(state.layout === 'free' ? [{ sep: true }, { label: t('menu.tidy'), onClick: resetLayout }] : []));
   }
 
@@ -2395,24 +2395,43 @@
     box.appendChild(picker);
   }
 
-  function renderRootSeg() {
-    const box = $('rootSeg');
-    box.textContent = '';
-    state.roots.forEach((r, i) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = r.title || (t('settings.rootPrefix') + ' ' + (i + 1));
-      b.setAttribute('aria-pressed', String(i === state.rootIdx));
-      b.addEventListener('click', () => {
-        state.rootIdx = i;
-        state.activeId = null;
-        store.set('rootIdx', i);
-        buildGroups();
-        render();
-        renderRootSeg();
-      });
-      box.appendChild(b);
-    });
+  // 书签来源（书签栏 / 其他书签 / 移动设备书签）放在左侧栏顶部，一个按钮加菜单，
+  // 三个根目录都摊开成按钮会吃掉分页列表的竖向空间
+  function bookmarkSourceTitle(root, i) {
+    return (root && root.title) || (t('settings.rootPrefix') + ' ' + (i + 1));
+  }
+  function renderSourceBtn() {
+    const btn = $('railSource');
+    if (!btn) return;
+    const i = state.rootIdx;
+    const title = bookmarkSourceTitle(state.roots[i], i);
+    const av = $('sourceAv');
+    const label = $('sourceLabel');
+    if (av) av.textContent = (title.trim().charAt(0) || '·').toUpperCase();
+    if (label) label.textContent = title;
+    btn.title = t('rail.sourceTitle', { name: title });
+    btn.hidden = state.roots.length < 2;
+  }
+  function bookmarkSourceMenu(anchor) {
+    if (state.roots.length < 2) return;
+    const r = anchor.getBoundingClientRect();
+    showMenu(r.left, r.bottom + 6, state.roots.map((root, i) => ({
+      label: bookmarkSourceTitle(root, i),
+      hint: i === state.rootIdx ? '✓' : '',
+      onClick: () => switchBookmarkSource(i)
+    })));
+  }
+  function switchBookmarkSource(i) {
+    if (i === state.rootIdx || !state.roots[i]) return;
+    state.rootIdx = i;
+    state.activeId = null;
+    store.set('rootIdx', i);
+    // 换源前打开的文件夹属于旧来源，留着会指向不存在的层级
+    exitSelectMode();
+    closeFolder(0);
+    buildGroups();
+    render();
+    renderSourceBtn();
   }
 
   let toastTimer;
@@ -2522,9 +2541,11 @@
     $('gearBtn').addEventListener('click', () => {
       renderSwatches();
       renderAccents();
-      renderRootSeg();
       $('drawer').hidden = false;
     });
+    // stopPropagation 是必须的：document 上有个「点到菜单外面就收起」的监听，
+    // 这一下点击会冒泡上去，刚打开就被自己关掉
+    $('railSource').addEventListener('click', (e) => { e.stopPropagation(); bookmarkSourceMenu(e.currentTarget); });
     $('closeDrawer').addEventListener('click', () => { $('drawer').hidden = true; });
     $('closeOverlay').addEventListener('click', () => closeFolder(0));
     $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeFolder(0); });
@@ -2672,7 +2693,6 @@
     if (params.get('settings')) {
       renderSwatches();
       renderAccents();
-      renderRootSeg();
       $('drawer').hidden = false;
     }
     const openIds = (params.get('open') || '').split(',').filter(Boolean);
@@ -2687,7 +2707,7 @@
 
     applyWall();
     renderSwatches();
-    renderRootSeg();
+    renderSourceBtn();
     renderEngine();
     paintSeg('layoutSeg', 'layout', state.layout);
     paintSeg('themeSeg', 'theme', state.theme);

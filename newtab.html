@@ -16,6 +16,11 @@
       <span class="rail-label" id="brandText" data-i18n="app.brand">书签</span>
       <button class="rail-toggle" id="railToggle" data-i18n-title="rail.collapse" title="收起侧栏">‹</button>
     </div>
+    <button class="page source" id="railSource" aria-haspopup="true" data-i18n-title="rail.sourceTitle" title="切换书签来源">
+      <span class="av" id="sourceAv">书</span>
+      <span class="label" id="sourceLabel">书签栏</span>
+      <svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <nav class="pages" id="pages"></nav>
     <button class="page select" id="selectBtn" aria-pressed="false" data-i18n-title="rail.selectTitle" title="选择书签">
       <span class="av">
@@ -138,11 +143,6 @@
       <button class="ghost" id="reloadExt" data-i18n="settings.reload">重载扩展</button>
       <span class="note" style="align-self:center" data-i18n="settings.reloadNote">改完代码点它，再按 F5</span>
     </div>
-  </div>
-  <div class="field">
-    <span class="label" data-i18n="settings.root">书签来源</span>
-    <div class="seg" id="rootSeg"></div>
-    <p class="note" data-i18n="settings.rootNote">换源后仍读写同一份书签，只是显示哪个根目录。</p>
   </div>
 </aside>
 
